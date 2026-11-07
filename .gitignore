@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config / secrets (nunca versionar)
+config.json
+cookies.txt
+*.log
+jobs/
+downloaded.json
+last.log
+
+# Temp
+*.tmp
+*.bak
