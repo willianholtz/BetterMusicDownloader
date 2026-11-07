@@ -166,6 +166,44 @@ def tag_opus(audio, meta, cover_path):
     audio.save()
 
 
+def tag_mp4(audio, meta, cover_path):
+    # MP4 atoms
+    audio.delete()
+    audio["\xa9nam"] = str(meta.get("title") or "")
+    artists = meta.get("artists") or []
+    if isinstance(artists, str):
+        artists = [artists]
+    artists = [a for a in artists if a]
+    if artists:
+        audio["\xa9ART"] = " / ".join(artists)
+    if meta.get("albumartist"):
+        audio["aART"] = str(meta.get("albumartist"))
+    if meta.get("album"):
+        audio["\xa9alb"] = str(meta.get("album"))
+    if meta.get("date"):
+        audio["\xa9day"] = str(meta.get("date"))[:10]
+    if meta.get("isrc"):
+        audio["----:com.apple.iTunes:ISRC"] = meta.get("isrc").encode()
+    if meta.get("track_number"):
+        total = meta.get("track_total") or meta.get("tracktotal")
+        audio["trkn"] = [(int(meta.get("track_number")), int(total) if total else 0)]
+    if meta.get("disc_number"):
+        dt = meta.get("disc_total") or meta.get("disctotal")
+        audio["disk"] = [(int(meta.get("disc_number")), int(dt) if dt else 0)]
+    src_url = meta.get("source")
+    if src_url:
+        audio["\xa9cmt"] = str(src_url)
+    if meta.get("title"):
+        audio["\xa9too"] = "ytflac"
+
+    data, mime = _cover_bytes(cover_path)
+    if data:
+        from mutagen.mp4 import MP4Cover
+        fmt = MP4Cover.FORMAT_PNG if mime == "image/png" else MP4Cover.FORMAT_JPEG
+        audio["covr"] = [MP4Cover(data, imageformat=fmt)]
+    audio.save()
+
+
 def main() -> int:
     if len(sys.argv) < 4:
         print("uso: tagfile.py <entrada> <saida> <json> [capa]", file=sys.stderr)
@@ -179,14 +217,26 @@ def main() -> int:
         from mutagen.flac import FLAC
         audio = FLAC(src)
         tag_flac(audio, meta, cover)
-    elif ext in (".opus", ".ogg"):
+    elif ext in (".opus",):
         from mutagen.oggopus import OggOpus
         audio = OggOpus(src)
         tag_opus(audio, meta, cover)
-    else:
+    elif ext in (".ogg",):
+        from mutagen.oggvorbis import OggVorbis
+        audio = OggVorbis(src)
+        tag_opus(audio, meta, cover)
+    elif ext in (".m4a",):
+        from mutagen.mp4 import MP4
+        audio = MP4(src)
+        tag_mp4(audio, meta, cover)
+    elif ext in (".mp3",):
         from mutagen.mp3 import MP3
         audio = MP3(src)
         tag_mp3(audio, meta, cover)
+    else:
+        # formato sem tagging dedicado (wav, aac, webm, ...): so move
+        os.replace(src, out)
+        return 0
 
     os.replace(src, out)
     return 0

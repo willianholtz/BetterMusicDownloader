@@ -512,7 +512,11 @@ def safe_name(s: str) -> str:
 def _audio_ext(fmt: str | None = None) -> str:
     if not fmt:
         fmt = (load_config().get("format") or "mp3").lower()
-    return {"mp3": ".mp3", "opus": ".opus", "flac": ".flac"}.get(fmt, ".mp3")
+    return {
+        "mp3": ".mp3", "m4a": ".m4a", "opus": ".opus", "vorbis": ".ogg",
+        "flac": ".flac", "wav": ".wav", "aac": ".aac", "alac": ".m4a",
+        "original": None,
+    }.get(fmt, ".mp3")
 
 def final_name(meta: dict, fmt: str | None = None) -> str:
     artists = " / ".join(meta.get("artists") or []) or meta.get("albumartist", "")
@@ -686,7 +690,7 @@ def run_job(jid: str) -> None:
         return
 
     fmt = (cfg.get("format") or "mp3").lower()
-    if fmt not in ("mp3", "opus", "flac"):
+    if fmt not in ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "original"):
         fmt = "mp3"
 
     min_br = int(cfg.get("min_bitrate") or 0)
@@ -730,8 +734,13 @@ def run_job(jid: str) -> None:
         "--progress",
         "-o", str(template),
     ]
-    cmd += ["--embed-thumbnail", "--convert-thumbnails", "jpg"]
-    cmd += ["-x", "--audio-format", fmt, "--audio-quality", "0"]
+    if fmt == "original":
+        # mantem o stream original (sem re-codificar)
+        pass
+    else:
+        cmd += ["-x", "--audio-format", fmt, "--audio-quality", "0"]
+    if fmt != "original":
+        cmd += ["--embed-thumbnail", "--convert-thumbnails", "jpg"]
     cmd += js_runtime()
     if cfg.get("cookies") and Path(cfg["cookies"]).expanduser().is_file():
         cmd += ["--cookies", str(Path(cfg["cookies"]).expanduser())]
@@ -843,9 +852,13 @@ def tag_spotify_file(path: str, meta: dict, dest: Path, fmt: str | None = None) 
     """Grava os metadados/capa do Spotify no FLAC e renomeia para a pasta final."""
     py = venv_python()
     src = Path(path)
-    out = dest / final_name(meta, fmt)
+    if fmt == "original":
+        ext = src.suffix or ".mp3"
+        out = dest / (final_name(meta, "mp3")[:-4] + ext)
+    else:
+        out = dest / final_name(meta, fmt)
     if out.exists():
-        out = dest / f"{out.stem} ({int(time.time())}).flac"
+        out = dest / f"{out.stem} ({int(time.time())}){out.suffix}"
 
     if not py:
         try:
@@ -1072,7 +1085,7 @@ class Handler(BaseHTTPRequestHandler):
                 cfg["cookies"] = (body.get("cookies") or "").strip()
             if "format" in body:
                 fmt = (body.get("format") or "").strip().lower()
-                if fmt in ("mp3", "opus", "flac"):
+                if fmt in ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "original"):
                     cfg["format"] = fmt
             if "normalize" in body:
                 cfg["normalize"] = bool(body.get("normalize"))
