@@ -86,11 +86,16 @@ The script:
 |---|---|
 | Destination folder | where the files are saved |
 | cookies.txt | optional, for videos requiring login (and Premium for 256 kbps) |
-| Output format | **MP3** (default, VBR ~245–285 kbps), **Original Opus** (no conversion, .opus) or **FLAC** |
+| Output format | **MP3** (default), **M4A/AAC**, **Opus**, **OGG Vorbis**, **FLAC** (re-encoded, not true lossless), **ALAC**, **WAV**, **Original** (no conversion) |
 | Normalize volume | applies loudnorm (EBU R128) — avoids "quiet" tracks |
 | Minimum quality (kbps) | 0 = accept everything. YouTube free delivers at most ~160 kbps. |
 
 The `cookies.txt` can be exported with the "Get cookies.txt LOCALLY" extension.
+
+> **Note on FLAC:** the FLAC option re-encodes the YouTube stream (Opus ~160 kbps)
+> into FLAC. The file gets large (~45 MB) but does **not** recover the quality
+> YouTube discarded — it is not truly lossless. For real FLAC, download from a
+> lossless source (Qobuz, Tidal, Bandcamp, CD) manually.
 
 ## API (for debugging)
 
