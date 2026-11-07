@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "YouTube → MP3",
-  "version": "1.0.0",
-  "description": "Baixa o áudio do YouTube (e faixas do Spotify, com metadados) em MP3 (320 kbps) usando o serviço local (yt-dlp + ffmpeg).",
+  "name": "__MSG_extName__",
+  "description": "__MSG_extDescription__",
+  "default_locale": "en",
+  "version": "1.0.1",
   "minimum_chrome_version": "110",
   "permissions": [
     "activeTab",
@@ -23,7 +24,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "YouTube → MP3",
+    "default_title": "__MSG_extName__",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

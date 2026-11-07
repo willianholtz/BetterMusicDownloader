@@ -19,6 +19,14 @@ function cleanTitle(title) {
 
 const $ = (id) => document.getElementById(id);
 
+function applyI18n() {
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.getAttribute("data-i18n");
+    const msg = chrome.i18n.getMessage(key);
+    if (msg) el.textContent = msg;
+  });
+}
+
 let currentUrl = "";
 let pollTimer = null;
 let serviceOnline = false;
@@ -226,6 +234,7 @@ async function saveSettings() {
 async function boot() {
   await loadCurrentTab();
   const online = await refreshHealth();
+  applyI18n();
   if (online) {
     await loadSettings();
     await poll();
@@ -236,6 +245,10 @@ async function boot() {
 $("download").addEventListener("click", startDownload);
 $("save").addEventListener("click", saveSettings);
 $("openFolder").addEventListener("click", () => send({ type: "open-folder" }));
+$("clearList").addEventListener("click", async () => {
+  const res = await send({ type: "clear-list" });
+  if (res.ok) { renderJobs([]); $("jobsEmpty").classList.remove("hidden"); }
+});
 $("settingsBox").addEventListener("toggle", (e) => {
   if (e.target.open) loadSettings();
 });

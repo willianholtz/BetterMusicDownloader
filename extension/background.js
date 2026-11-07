@@ -78,9 +78,9 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
     const label = data.name
       ? `${data.name} (${created.length} faixas)`
       : "Convertendo para MP3…";
-    notify("Download iniciado", label);
+    notify(chrome.i18n.getMessage("notifyStarted") || "Download started", label);
   } catch (e) {
-    notify("Falha ao iniciar", String(e.message || e));
+    notify(chrome.i18n.getMessage("notifyStartFail") || "Failed to start", String(e.message || e));
   }
 });
 
@@ -97,11 +97,11 @@ function trackJob(id) {
       if (job.status === "done") {
         clearInterval(timer);
         tracking.delete(id);
-        notify("MP3 pronto", job.title || "Áudio convertido com sucesso.");
+        notify(chrome.i18n.getMessage("notifyDone") || "MP3 ready", job.title || "Audio converted successfully.");
       } else if (job.status === "error" || job.status === "cancelled") {
         clearInterval(timer);
         tracking.delete(id);
-        if (job.status === "error") notify("Falhou", job.error || "Erro no download.");
+        if (job.status === "error") notify(chrome.i18n.getMessage("notifyFail") || "Failed", job.error || "Download error.");
       }
     } catch {
       clearInterval(timer);
@@ -132,6 +132,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
               body: JSON.stringify(msg.payload || {}),
             }),
           });
+          break;
+        case "clear-list":
+          sendResponse({ ok: true, data: await api("/api/jobs/clear", { method: "POST" }) });
           break;
         case "download": {
           const { created, data } = await startJobs(msg.url);

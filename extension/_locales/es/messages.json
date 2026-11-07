@@ -1,0 +1,77 @@
+{
+  "extName": {
+    "message": "YouTube → MP3"
+  },
+  "extDescription": {
+    "message": "Descarga el audio de YouTube (y pistas de Spotify, con metadatos) en MP3 usando un servicio local (yt-dlp + ffmpeg)."
+  },
+  "btnDownload": {
+    "message": "Descargar audio en MP3"
+  },
+  "btnDownloadSpotify": {
+    "message": "Descargar de Spotify en MP3"
+  },
+  "notVideo": {
+    "message": "Abre un vídeo de YouTube/Music o una pista, álbum o playlist de Spotify para descargar audio."
+  },
+  "offlineTitle": {
+    "message": "Servicio local desconectado."
+  },
+  "offlineHint": {
+    "message": "Ejecuta systemctl --user start ytflac o install.sh."
+  },
+  "downloadsTitle": {
+    "message": "Descargas"
+  },
+  "openFolder": {
+    "message": "abrir carpeta"
+  },
+  "noDownloads": {
+    "message": "Sin descargas aún."
+  },
+  "clearList": {
+    "message": "Limpiar lista"
+  },
+  "settingsTitle": {
+    "message": "Configuración"
+  },
+  "labelOutdir": {
+    "message": "Carpeta de destino"
+  },
+  "labelCookies": {
+    "message": "cookies.txt (opcional, para vídeos que requieren login)"
+  },
+  "labelFormat": {
+    "message": "Formato de salida"
+  },
+  "labelNormalize": {
+    "message": "Normalizar volumen (loudnorm)"
+  },
+  "labelMinBitrate": {
+    "message": "Calidad mínima de la fuente (kbps, 0 = aceptar todo)"
+  },
+  "minBitrateHint": {
+    "message": "YouTube gratis entrega como máximo ~160 kbps."
+  },
+  "save": {
+    "message": "Guardar"
+  },
+  "saved": {
+    "message": "guardado ✓"
+  },
+  "footer": {
+    "message": "MP3 VBR ~245–285 kbps (la fuente de YouTube es Opus ~160 kbps). Spotify aporta solo metadatos."
+  },
+  "notifyStarted": {
+    "message": "Descarga iniciada"
+  },
+  "notifyDone": {
+    "message": "MP3 listo"
+  },
+  "notifyFail": {
+    "message": "Falló"
+  },
+  "notifyStartFail": {
+    "message": "Error al iniciar"
+  }
+}

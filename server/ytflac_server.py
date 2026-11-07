@@ -1043,6 +1043,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"jobs": [job], "kind": "video"})
             return
 
+        if path == "/api/jobs/clear":
+            with lock:
+                jobs.clear()
+                jobs_order.clear()
+            self._json(200, {"ok": True})
+            return
+
         if path == "/api/jobs/cancel":
             jid = (body.get("id") or "").strip()
             proc = procs.get(jid)

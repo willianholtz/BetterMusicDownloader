@@ -2,79 +2,76 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>YouTube/Spotify → MP3</title>
+  <title>YouTube → MP3</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
   <header>
-    <img src="icons/icon48.png" alt="" class="logo" />
-    <div class="titles">
-      <h1>YouTube → MP3</h1>
-      <span id="service" class="pill pill-off">verificando…</span>
-    </div>
+    <h1 data-i18n="extName">YouTube → MP3</h1>
   </header>
 
-  <section id="current" class="card current hidden">
+  <section id="current" class="card">
     <div class="video-title" id="videoTitle">—</div>
     <div class="video-url" id="videoUrl">—</div>
-    <button id="download" class="btn primary">Baixar áudio em MP3</button>
+    <button id="download" class="btn primary" data-i18n="btnDownload">Baixar áudio em MP3</button>
   </section>
 
-  <section id="notVideo" class="card empty hidden">
+  <section id="notVideo" class="card empty hidden" data-i18n="notVideo">
     Abra um vídeo do YouTube/Music ou uma faixa, álbum ou playlist do Spotify para baixar o áudio.
   </section>
 
   <section id="offline" class="card warn hidden">
-    <strong>Serviço local offline.</strong>
-    <p>Rode <code>systemctl --user start ytflac</code> ou execute
-      <code>~/Documentos/GitHub/youtube-flac/install.sh</code>.</p>
+    <strong data-i18n="offlineTitle">Serviço local offline.</strong>
+    <p data-i18n="offlineHint">Rode systemctl --user start ytflac ou execute install.sh.</p>
   </section>
 
   <section class="list-block">
     <div class="list-head">
-      <span>Downloads</span>
-      <button id="openFolder" class="link" title="Abrir pasta de destino">abrir pasta</button>
+      <span data-i18n="downloadsTitle">Downloads</span>
+      <div class="row-inline">
+        <button id="clearList" class="link" data-i18n="clearList">Limpar lista</button>
+        <button id="openFolder" class="link" data-i18n="openFolder" title="Abrir pasta de destino">abrir pasta</button>
+      </div>
     </div>
     <ul id="jobs" class="jobs"></ul>
-    <p id="jobsEmpty" class="muted">Nenhum download ainda.</p>
+    <p id="jobsEmpty" class="muted" data-i18n="noDownloads">Nenhum download ainda.</p>
   </section>
 
   <details id="settingsBox" class="settings">
-    <summary>Configurações</summary>
+    <summary data-i18n="settingsTitle">Configurações</summary>
     <label>
-      Pasta de destino
+      <span data-i18n="labelOutdir">Pasta de destino</span>
       <input id="outdir" type="text" spellcheck="false" placeholder="~/Música/YouTube FLAC" />
     </label>
     <label>
-      cookies.txt (opcional, p/ vídeos com login)
+      <span data-i18n="labelCookies">cookies.txt (opcional, p/ vídeos com login)</span>
       <input id="cookies" type="text" spellcheck="false" placeholder="/caminho/cookies.txt" />
     </label>
     <label>
-      Formato de saída
+      <span data-i18n="labelFormat">Formato de saída</span>
       <select id="format">
         <option value="mp3">MP3 (padrão, VBR ~245–285 kbps)</option>
-        <option value="opus">Opus original (sem conversão)</option>
+        <option value="opus">Opus original (sem conversão, .opus)</option>
         <option value="flac">FLAC (sem perdas do stream)</option>
       </select>
     </label>
     <label class="inline">
       <input id="normalize" type="checkbox" />
-      Normalizar volume (loudnorm, evita músicas baixas)
+      <span data-i18n="labelNormalize">Normalizar volume (loudnorm)</span>
     </label>
     <label>
-      Qualidade mínima da fonte (kbps, 0 = aceitar tudo)
+      <span data-i18n="labelMinBitrate">Qualidade mínima da fonte (kbps, 0 = aceitar tudo)</span>
       <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />
-      <span class="muted">YouTube grátis entrega no máx ~160 kbps; com Premium ~256.</span>
+      <span class="muted" data-i18n="minBitrateHint">YouTube grátis entrega no máx ~160 kbps.</span>
     </label>
     <div class="row">
-      <button id="save" class="btn small">Salvar</button>
+      <button id="save" class="btn small" data-i18n="save">Salvar</button>
       <span id="saveMsg" class="muted"></span>
     </div>
   </details>
 
-  <footer>
-    MP3 320 kbps (fonte do YouTube é Opus ~160 kbps). Do Spotify vêm só os metadados: o áudio é o do YouTube, com capa e tags do Spotify.
+  <footer data-i18n="footer">
+    MP3 VBR ~245–285 kbps (fonte do YouTube é Opus ~160 kbps). Do Spotify vêm só os metadatos.
   </footer>
 
   <script src="popup.js"></script>
