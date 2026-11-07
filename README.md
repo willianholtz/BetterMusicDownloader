@@ -1,97 +1,98 @@
-# YouTube / Spotify → MP3 (extensão para Vivaldi)
+# YouTube / Spotify → MP3 (Vivaldi extension)
 
-Clique no ícone da extensão em qualquer vídeo do YouTube (ou YouTube Music) — ou
-numa faixa, álbum ou playlist do Spotify — e o áudio é baixado e convertido para
-**MP3 (VBR ~245–285 kbps, lame -V0)** na sua pasta de música, com os metadados
-e a capa embutidos.
+Click the extension icon on any YouTube (or YouTube Music) video — or on a
+Spotify track, album or playlist — and the audio is downloaded and converted to
+**MP3 (VBR ~245–285 kbps, lame -V0)** into your music folder, with metadata and
+cover art embedded.
 
 ```
-Vivaldi (extensão)  ──HTTP──>  serviço local 127.0.0.1:8765  ──>  yt-dlp  ──>  ffmpeg  ──>  .mp3
+Vivaldi (extension)  --HTTP-->  local service 127.0.0.1:8765  -->  yt-dlp  -->  ffmpeg  -->  .mp3
 ```
 
-## Por que precisa de um serviço local
+## Why a local service is needed
 
-Um navegador não consegue baixar e converter áudio do YouTube sozinho: o stream
-exige decifrar a assinatura do player, e não existe acesso a ffmpeg dentro da
-extensão. Então a extensão é só a interface; quem faz o trabalho é um serviço
-local (`server/ytflac_server.py`) que roda yt-dlp + ffmpeg.
+A browser cannot download and convert YouTube audio on its own: the stream
+requires deciphering the player signature, and there is no ffmpeg access inside
+an extension. So the extension is just the UI; the heavy lifting is done by a
+local service (`server/ytflac_server.py`) running yt-dlp + ffmpeg.
 
 ## Spotify
 
-Link de faixa, álbum ou playlist do Spotify funciona no mesmo botão. O áudio
-**não** vem do Spotify (isso exigiria quebrar DRM): o servidor lê os metadados
-públicos da página (título, artistas, data, capa), procura o vídeo correspondente
-no YouTube casando a **duração** e grava o MP3 com:
+Track, album and playlist links work with the same button. The audio does **not**
+come from Spotify (that would require breaking DRM): the server reads the public
+metadata of the page (title, artists, date, cover), finds the matching video on
+YouTube by **duration** and writes the MP3 with:
 
-- título, artistas, álbum, álbum-artista, data, número da faixa/disco;
-- ISRC (Deezer) e capa 640×640 do Spotify;
-- link do Spotify em `comment`/`description`.
+- title, artists, album, album artist, date, track/disc number;
+- ISRC (from Deezer) and the 640×640 Spotify cover;
+- the Spotify link in `comment`/`description`.
 
-Álbum e playlist são baixados faixa por faixa, numa subpasta com o nome da
-coleção. Álbum/faixa vêm do iTunes (que acerta o lançamento original) e o ISRC
-do Deezer — o embed público do Spotify não expõe o álbum de uma faixa isolada.
+Albums and playlists are downloaded track by track into a subfolder named after
+the collection. Album/track info comes from iTunes (which gets the original
+release right) and the ISRC from Deezer — Spotify's public embed does not expose
+the album of a standalone track.
 
-## Qualidade
+## Quality
 
-O YouTube entrega no máximo **Opus ~160 kbps** (grátis) ou **~256 kbps** (Premium,
-com `cookies.txt`). O serviço baixa a melhor faixa disponível e converte para
-**MP3 VBR lame -V0** (~245–285 kbps), que é transparente para essa fonte.
+YouTube delivers at most **Opus ~160 kbps** (free) or **~256 kbps** (Premium, with
+`cookies.txt`). The service downloads the best available track and converts it to
+**MP3 VBR lame -V0** (~245–285 kbps), which is transparent for that source.
 
-- Converter para MP3 **não cria qualidade** que não existia — a fonte já é
-  comprimida. O ganho é compatibilidade universal (todo player toca MP3) e
-  tamanho razoável (~7 MB por faixa em vez de ~45 MB do FLAC).
-- Para qualidade real sem perdas use a fonte original (CD, Bandcamp, Qobuz…)
-  ou exporte cookies de uma conta **YouTube Premium** no popup → Configurações.
-- O seletor usa `bestaudio/best`: pega o Opus 251 (160 kbps) por padrão.
+- Converting to MP3 does **not** create quality that did not exist — the source
+  is already compressed. The gain is universal compatibility (every player plays
+  MP3) and reasonable size (~7 MB per track instead of ~45 MB for FLAC).
+- For truly lossless quality, use the original source (CD, Bandcamp, Qobuz…)
+  or export cookies from a **YouTube Premium** account in the popup → Settings.
+- The selector uses `bestaudio/best`: picks Opus 251 (160 kbps) by default.
 
-## Instalação
+## Installation
 
 ```bash
 cd ~/Documentos/GitHub/youtube-flac
 bash install.sh
 ```
 
-O script:
-1. confere `python3` e `ffmpeg`;
-2. baixa o `yt-dlp` para `~/.local/bin` se não existir;
-3. instala e ativa o serviço `ytflac.service` (systemd `--user`);
-4. cria `~/Música/YouTube FLAC`;
-5. mostra como carregar a extensão no Vivaldi.
+The script:
+1. checks `python3` and `ffmpeg`;
+2. downloads `yt-dlp` into `~/.local/bin` if missing;
+3. installs and enables the `ytflac.service` (systemd `--user`);
+4. creates `~/Música/YouTube FLAC`;
+5. shows how to load the extension in Vivaldi.
 
-### Carregar no Vivaldi
+### Load in Vivaldi
 
 1. `vivaldi://extensions`
-2. ative **Modo do desenvolvedor**
-3. **Carregar sem compactação** → escolha `~/Documentos/GitHub/youtube-flac/extension`
+2. enable **Developer mode**
+3. **Load unpacked** → pick `~/Documentos/GitHub/youtube-flac/extension`
 
-## Uso
+## Usage
 
-- Abra o vídeo (ou a faixa/álbum/playlist) → clique no ícone → **Baixar em MP3**.
-- Ou clique com o botão direito na página/link → **Baixar áudio em MP3**.
-- O popup mostra o progresso; ao terminar, **salvar .mp3** grava o arquivo onde
-  você quiser (o arquivo também já está na pasta de destino).
-- **abrir pasta** abre a pasta de destino.
-- **Nome do arquivo:** `Artista - Música.mp3`, sem ID nenhum no nome. O
-  controle de duplicados fica no índice `~/.config/ytflac/downloaded.json`
-  (ID da faixa do Spotify / do vídeo do YouTube → caminho do arquivo).
-- Se a faixa/vídeo já existe em qualquer subpasta da pasta de destino, o job
-  termina na hora (não baixa duas vezes) — dá para recolocar uma playlist
-  inteira e ele só completa o que falta. Para forçar de novo, envie
-  `{"url": "...", "force": true}` na API.
+- Open the video (or track/album/playlist) → click the icon → **Download as MP3**.
+- Or right-click the page/link → **Download audio as MP3**.
+- The popup shows progress; when done, **save .mp3** stores the file wherever you
+  want (it is already in the destination folder too).
+- **open folder** opens the destination folder.
+- **File name:** `Artist - Title.mp3`, no ID in the name. Duplicate control lives
+  in the index `~/.config/ytflac/downloaded.json`
+  (Spotify track ID / YouTube video ID → file path).
+- If the track/video already exists in any subfolder of the destination, the job
+  finishes instantly (no re-download) — you can re-submit a whole playlist and it
+  only completes what is missing. To force a re-download, send
+  `{"url": "...", "force": true}` to the API.
 
-## Configurações (popup → Configurações)
+## Settings (popup → Settings)
 
-| Campo | Para quê |
+| Field | Purpose |
 |---|---|
-| Pasta de destino | onde os arquivos são gravados |
-| cookies.txt | opcional, para vídeos que exigem login/idade (e Premium p/ 256 kbps) |
-| Formato de saída | **MP3** (padrão, VBR ~245–285 kbps), **Opus original** (sem conversão, .opus) ou **FLAC** |
-| Normalizar volume | aplica loudnorm (EBU R128) — evita músicas "baixas" |
-| Qualidade mínima (kbps) | 0 = aceitar tudo. YouTube grátis entrega no máx ~160 kbps. |
+| Destination folder | where the files are saved |
+| cookies.txt | optional, for videos requiring login (and Premium for 256 kbps) |
+| Output format | **MP3** (default, VBR ~245–285 kbps), **Original Opus** (no conversion, .opus) or **FLAC** |
+| Normalize volume | applies loudnorm (EBU R128) — avoids "quiet" tracks |
+| Minimum quality (kbps) | 0 = accept everything. YouTube free delivers at most ~160 kbps. |
 
-O `cookies.txt` pode ser exportado com a extensão "Get cookies.txt LOCALLY".
+The `cookies.txt` can be exported with the "Get cookies.txt LOCALLY" extension.
 
-## API (para depurar)
+## API (for debugging)
 
 ```bash
 curl 127.0.0.1:8765/api/health
@@ -103,35 +104,36 @@ curl -X POST 127.0.0.1:8765/api/jobs -H 'Content-Type: application/json' \
 curl '127.0.0.1:8765/api/jobs?id=<id>'
 ```
 
-## Manutenção
+## Maintenance
 
 ```bash
-# atualizar o yt-dlp (o YouTube muda com frequência)
+# update yt-dlp (YouTube changes frequently)
 ~/.local/share/ytflac/venv/bin/pip install -U "yt-dlp[default]"
 
-# logs do serviço
+# service logs
 journalctl --user -u ytflac -n 50 -f
 
-# reiniciar / parar
+# restart / stop
 systemctl --user restart ytflac
 systemctl --user stop ytflac
 ```
 
-O `yt-dlp` roda numa venv própria (`~/.local/share/ytflac/venv`) porque ela
-traz o `mutagen` e os extras usados para embutir título/artista/capa no MP3.
+`yt-dlp` runs in its own venv (`~/.local/share/ytflac/venv`) because it brings
+`mutagen` and the extras used to embed title/artist/cover in the MP3.
 
-**Runtime JS:** o yt-dlp usa `deno` ou `node` para resolver os desafios do
-YouTube. O serviço detecta sozinho (`deno` → `node` → `bun`) e passa
-`--js-runtimes`. Sem nenhum deles a extração ainda funciona, mas com menos
-formatos disponíveis e um aviso no log.
+**JS runtime:** yt-dlp uses `deno` or `node` to solve YouTube's challenges. The
+service detects it automatically (`deno` → `node` → `bun`) and passes
+`--js-runtimes`. Without any of them extraction still works, but with fewer
+available formats and a warning in the log.
 
-## Segurança
+## Security
 
-- O serviço escuta **somente** em `127.0.0.1` (não fica exposto na rede).
-- Só aceita URLs de domínios do YouTube.
-- Só serve arquivos `.mp3` (e `.flac` antigos) dentro da pasta de destino configurada.
+- The service listens **only** on `127.0.0.1` (not exposed on the network).
+- It only accepts URLs from YouTube domains.
+- It only serves `.mp3` (and legacy `.flac`) files inside the configured
+  destination folder.
 
-## Estrutura
+## Structure
 
 ```
 youtube-flac/
@@ -147,3 +149,5 @@ youtube-flac/
     ├── popup.css
     └── icons/
 ```
+EOF
+echo "written"
