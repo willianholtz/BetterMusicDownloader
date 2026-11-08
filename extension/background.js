@@ -198,7 +198,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true, data: await api("/api/open-folder", { method: "POST" }) });
           break;
         default:
-          sendResponse({ ok: false, error: "mensagem desconhecida" });
+          sendResponse({ ok: false, error: "mensagem desconhecida: " + (msg && msg.type) });
       }
     } catch (e) {
       sendResponse({ ok: false, error: String(e.message || e) });
