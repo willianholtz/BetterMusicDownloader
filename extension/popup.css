@@ -59,6 +59,20 @@ h1 {
 .pill-on  { color: var(--ok);   background: rgba(61,220,132,.12); border-color: rgba(61,220,132,.35); }
 .pill-off { color: var(--warn); background: rgba(255,176,32,.12); border-color: rgba(255,176,32,.35); }
 
+.status-line {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--fg);
+  min-height: 16px;
+}
+.status-line.active { border-color: rgba(61,220,132,.4); background: rgba(61,220,132,.08); }
+.status-line.done { border-color: rgba(61,220,132,.4); }
+.status-line.idle { color: var(--muted); }
+
 .card {
   background: var(--bg-2);
   border: 1px solid var(--line);

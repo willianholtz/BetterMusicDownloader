@@ -88,5 +88,14 @@
   },
   "notifyTrackDone": {
     "message": "Download concluído"
+  },
+  "statusDownloading": {
+    "message": "Baixando… {0}/{1} concluídas"
+  },
+  "statusLast": {
+    "message": "Último: {0} — {1}/{2} concluídas"
+  },
+  "statusIdle": {
+    "message": "Nenhum download em andamento."
   }
 }

@@ -88,5 +88,14 @@
   },
   "notifyTrackDone": {
     "message": "Download finished"
+  },
+  "statusDownloading": {
+    "message": "Downloading… {0}/{1} done"
+  },
+  "statusLast": {
+    "message": "Last: {0} — {1}/{2} done"
+  },
+  "statusIdle": {
+    "message": "No download in progress."
   }
 }

@@ -88,5 +88,14 @@
   },
   "notifyTrackDone": {
     "message": "Descarga terminada"
+  },
+  "statusDownloading": {
+    "message": "Descargando… {0}/{1} listas"
+  },
+  "statusLast": {
+    "message": "Último: {0} — {1}/{2} listas"
+  },
+  "statusIdle": {
+    "message": "Sin descargas en curso."
   }
 }

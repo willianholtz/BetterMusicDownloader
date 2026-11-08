@@ -201,14 +201,41 @@ function renderHistory(entries) {
 async function loadHistory() {
   const res = await send({ type: "history" });
   if (res.ok && res.data && Array.isArray(res.data.history)) {
+    lastHistory = res.data.history;
     renderHistory(res.data.history);
+    // refresh status line with current jobs
+    const r2 = await send({ type: "jobs" });
+    if (r2.ok && r2.data && Array.isArray(r2.data.jobs)) updateStatusLine(r2.data.jobs, lastHistory);
   }
 }
 
+function updateStatusLine(jobs, history) {
+  const el = $("statusLine");
+  if (!el) return;
+  const active = (jobs || []).filter((j) => ["downloading","converting","queued","searching","tagging"].includes(j.status));
+  if (active.length > 0) {
+    const done = (jobs || []).filter((j) => j.status === "done").length;
+    const total = jobs.length;
+    el.textContent = (chrome.i18n.getMessage("statusDownloading") || "Baixando… {0}/{1} concluídas").replace("{0}",done).replace("{1}",total);
+    el.className = "status-line active";
+    return;
+  }
+  const last = (history || [])[0];
+  if (last) {
+    el.textContent = (chrome.i18n.getMessage("statusLast") || "Último: {0} — {1}/{2} concluídas").replace("{0}",last.name).replace("{1}",last.done||0).replace("{2}",last.total||1);
+    el.className = "status-line done";
+    return;
+  }
+  el.textContent = chrome.i18n.getMessage("statusIdle") || "Nenhum download em andamento.";
+  el.className = "status-line idle";
+}
+
+let lastHistory = [];
 async function poll() {
   const res = await send({ type: "jobs" });
   if (res.ok && res.data && Array.isArray(res.data.jobs)) {
     renderJobs(res.data.jobs);
+    updateStatusLine(res.data.jobs, lastHistory);
   }
 }
 
@@ -294,11 +321,11 @@ $("save").addEventListener("click", saveSettings);
 $("openFolder").addEventListener("click", () => send({ type: "open-folder" }));
 $("clearHistory").addEventListener("click", async () => {
   const res = await send({ type: "clear-history" });
-  if (res.ok) { renderHistory([]); $("historyEmpty").classList.remove("hidden"); }
+  if (res.ok) { lastHistory = []; renderHistory([]); $("historyEmpty").classList.remove("hidden"); updateStatusLine([], []); }
 });
 $("clearList").addEventListener("click", async () => {
   const res = await send({ type: "clear-list" });
-  if (res.ok) { renderJobs([]); $("jobsEmpty").classList.remove("hidden"); }
+  if (res.ok) { renderJobs([]); $("jobsEmpty").classList.remove("hidden"); updateStatusLine([], lastHistory); }
 });
 $("settingsBox").addEventListener("toggle", (e) => {
   if (e.target.open) loadSettings();
