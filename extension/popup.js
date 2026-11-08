@@ -89,6 +89,9 @@ async function loadCurrentTab() {
     $("videoTitle").textContent = cleanTitle(raw);
     $("videoUrl").textContent = currentUrl;
     $("download").textContent = spotify ? "Baixar do Spotify em MP3" : "Baixar áudio em MP3";
+    // remove previous note
+    const oldNote = document.getElementById("statusNote");
+    if (oldNote) oldNote.remove();
     // status icon (green/orange/red)
     const icon = $("statusIcon");
     if (icon) {
@@ -100,6 +103,13 @@ async function loadCurrentTab() {
           icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Não foi possível verificar (serviço offline?)";
         } else if (res.data && res.data.error) {
           icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Playlist personalizada ou requer login — status não verificável.";
+          const note = document.createElement("div");
+          note.id = "statusNote";
+          note.className = "muted";
+          note.style.fontSize = "11px";
+          note.style.marginTop = "4px";
+          note.textContent = "Playlist personalizada: não dá para verificar o status, mas o download funciona normalmente.";
+          $("videoUrl").after(note);
         } else if (res.data && Array.isArray(res.data.tracks) && res.data.tracks.length) {
           const total = res.data.tracks.length;
           const existing = res.data.existing != null ? res.data.existing : res.data.tracks.filter((t) => t.exists).length;
