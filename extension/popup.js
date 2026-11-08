@@ -263,11 +263,25 @@ function updateStatusLine(jobs, history) {
 
 let lastHistory = [];
 let lastBatchInfo = null;
+let lastJobs = [];
 async function poll() {
   const res = await send({ type: "jobs" });
   if (res.ok && res.data && Array.isArray(res.data.jobs)) {
-    renderJobs(res.data.jobs);
-    updateStatusLine(res.data.jobs, lastHistory);
+    if (res.data.jobs.length > 0) {
+      lastJobs = res.data.jobs;
+      chrome.storage.local.set({ lastJobs: res.data.jobs });
+      renderJobs(res.data.jobs);
+      updateStatusLine(res.data.jobs, lastHistory);
+    } else if (lastJobs && lastJobs.length) {
+      // servico reiniciou ou jobs concluidos: mantem a lista em cache, nao apaga
+      renderJobs(lastJobs);
+      updateStatusLine([], lastHistory);
+    } else {
+      renderJobs([]);
+      updateStatusLine([], lastHistory);
+    }
+  } else {
+    if (lastJobs && lastJobs.length) renderJobs(lastJobs);
   }
 }
 
@@ -346,12 +360,16 @@ async function boot() {
   const online = await refreshHealth();
   applyI18n();
   if (online) {
-    chrome.storage.local.get(["lastBatch"], (r) => {
+    chrome.storage.local.get(["lastJobs", "lastBatch"], (r) => {
+      if (r && r.lastJobs && r.lastJobs.length) {
+        lastJobs = r.lastJobs;
+        renderJobs(r.lastJobs);
+      }
       const lb = r && r.lastBatch;
       if (lb && lb.name) {
         lastBatchInfo = lb;
         const el = $("statusLine");
-        if (el) { el.textContent = `Último enviado: ${lb.name} (${lb.total} faixas)`; el.className = "status-line"; }
+        if (el && (!lastJobs || !lastJobs.length)) { el.textContent = `Último enviado: ${lb.name} (${lb.total} faixas)`; el.className = "status-line"; }
       }
     });
     await loadSettings();
@@ -370,7 +388,7 @@ $("clearHistory").addEventListener("click", async () => {
 });
 $("clearList").addEventListener("click", async () => {
   const res = await send({ type: "clear-list" });
-  if (res.ok) { renderJobs([]); $("jobsEmpty").classList.remove("hidden"); updateStatusLine([], lastHistory); }
+  if (res.ok) { lastJobs = []; chrome.storage.local.remove(["lastJobs"]); renderJobs([]); $("jobsEmpty").classList.remove("hidden"); updateStatusLine([], lastHistory); }
 });
 $("settingsBox").addEventListener("toggle", (e) => {
   if (e.target.open) loadSettings();
