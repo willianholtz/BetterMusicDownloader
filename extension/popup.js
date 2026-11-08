@@ -158,7 +158,7 @@ function jobLabel(job) {
 function renderJobs(jobs) {
   const ul = $("jobs");
   ul.innerHTML = "";
-  const visible = jobs.slice(0, 8);
+  const visible = jobs;  // mostra todos; scroll no container
   $("jobsEmpty").classList.toggle("hidden", visible.length > 0);
 
   for (const job of visible) {

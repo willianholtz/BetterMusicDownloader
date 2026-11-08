@@ -175,7 +175,7 @@ code {
 }
 .link:hover { color: var(--fg); }
 
-.jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.jobs { max-height: 220px; overflow-y: auto; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 
 .job {
   background: var(--bg-2);
@@ -291,5 +291,5 @@ details.list-block > summary::before {
 }
 details[open].list-block > summary::before { transform: rotate(90deg); }
 details.list-block > summary:hover { background: var(--bg-3); }
-details.list-block .jobs { padding: 0 10px 8px; margin: 0; }
+details.list-block .jobs { max-height: 220px; overflow-y: auto; padding: 0 10px 8px; margin: 0; }
 details.list-block .muted { padding: 0 10px 8px; margin: 0; }
