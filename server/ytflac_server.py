@@ -891,13 +891,15 @@ def run_job(jid: str) -> None:
         return
     finally:
         procs.pop(jid, None)
-        # limpa arquivos temporarios orfaos deste job
+        # limpa arquivos temporarios INTERMEDIARIOS deste job (nao o .mp3 principal,
+        # que ainda precisa ser tagueado/movido; ele e limpo nos caminhos de erro)
         try:
             for tmp in outdir.glob(f".ytflac-{jid}*"):
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
+                if tmp.suffix.lower() in (".webm", ".jpg", ".jpeg", ".png", ".part") or tmp.name.endswith(".norm.mp3"):
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
         except OSError:
             pass
 
@@ -906,6 +908,12 @@ def run_job(jid: str) -> None:
         if cur.get("status") == "cancelled":
             return
         batch_update(job.get("batch_id", ""), False)
+        # limpa temp .mp3 orfao
+        try:
+            for tmp in outdir.glob(f".ytflac-{jid}*.mp3"):
+                tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
         update(jid, status="error",
                error=cur.get("error") or f"yt-dlp saiu com código {code}. Veja {log_path}.",
                finished=time.time())
@@ -925,7 +933,12 @@ def run_job(jid: str) -> None:
         except OSError:
             final = ""
     if not final:
-        update(jid, status="error", error="O FLAC não apareceu na pasta de destino.", finished=time.time())
+        try:
+            for tmp in outdir.glob(f".ytflac-{jid}*.mp3"):
+                tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        update(jid, status="error", error="O arquivo não apareceu na pasta de destino.", finished=time.time())
         _mirror_log(jid, log_path)
         return
 
