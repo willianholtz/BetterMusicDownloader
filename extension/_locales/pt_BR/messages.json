@@ -97,5 +97,8 @@
   },
   "statusIdle": {
     "message": "Nenhum download em andamento."
+  },
+  "stopAll": {
+    "message": "Parar tudo"
   }
 }

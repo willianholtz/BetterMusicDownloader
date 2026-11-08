@@ -97,5 +97,8 @@
   },
   "statusIdle": {
     "message": "Sin descargas en curso."
+  },
+  "stopAll": {
+    "message": "Parar todo"
   }
 }

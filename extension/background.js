@@ -159,6 +159,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         case "clear-list":
           sendResponse({ ok: true, data: await api("/api/jobs/clear", { method: "POST" }) });
           break;
+        case "stop-all": {
+          const r = await api("/api/jobs");
+          const active = (r.jobs || []).filter((j) => ["downloading","queued","converting","searching","tagging"].includes(j.status));
+          for (const j of active) {
+            try { await api("/api/jobs/cancel", { method: "POST", body: JSON.stringify({ id: j.id }) }); } catch (e) {}
+          }
+          sendResponse({ ok: true, data: { stopped: active.length } });
+          break;
+        }
         case "history":
           sendResponse({ ok: true, data: await api("/api/history") });
           break;

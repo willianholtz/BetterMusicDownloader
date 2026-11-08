@@ -157,7 +157,7 @@ function renderJobs(jobs) {
 
     const title = document.createElement("div");
     title.className = "job-title";
-    title.textContent = job.title || job.url;
+    title.textContent = job.group ? `${job.group} — ${job.title || job.url}` : (job.title || job.url);
     title.title = [job.group, job.title || job.url].filter(Boolean).join(" — ");
 
     const state = document.createElement("span");
@@ -399,6 +399,10 @@ $("clearHistory").addEventListener("click", async () => {
 $("clearList").addEventListener("click", async () => {
   const res = await send({ type: "clear-list" });
   if (res.ok) { lastJobs = []; chrome.storage.local.remove(["lastJobs"]); renderJobs([]); $("jobsEmpty").classList.remove("hidden"); updateStatusLine([], lastHistory); }
+});
+$("stopAll").addEventListener("click", async () => {
+  const res = await send({ type: "stop-all" });
+  if (res.ok) { poll(); }
 });
 $("settingsBox").addEventListener("toggle", (e) => {
   if (e.target.open) loadSettings();
