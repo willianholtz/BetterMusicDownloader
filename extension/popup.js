@@ -85,7 +85,14 @@ async function loadCurrentTab() {
 
   if (isMedia) {
     const spotify = isSpotify(currentUrl);
-    const raw = forced ? (new URL(currentUrl).searchParams.get("v") || currentUrl) : (tab.title || (spotify ? "Spotify" : "Vídeo do YouTube"));
+    let resolvedName = "";
+    if (spotify) {
+      const r = await send({ type: "resolve", url: currentUrl });
+      if (r.ok && r.data) {
+        resolvedName = r.data.name || (r.data.tracks && r.data.tracks[0] && r.data.tracks[0].artists && r.data.tracks[0].artists.join(" / ")) || "";
+      }
+    }
+    const raw = forced ? (new URL(currentUrl).searchParams.get("v") || currentUrl) : (resolvedName || tab.title || (spotify ? "Spotify" : "Vídeo do YouTube"));
     $("videoTitle").textContent = cleanTitle(raw);
     $("videoUrl").textContent = currentUrl;
     $("download").textContent = spotify ? "Baixar do Spotify em MP3" : "Baixar áudio em MP3";
