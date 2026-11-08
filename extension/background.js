@@ -141,6 +141,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         case "settings":
           sendResponse({ ok: true, data: await api("/api/settings") });
           break;
+        case "resolve":
+          sendResponse({ ok: true, data: await api("/api/resolve?url=" + encodeURIComponent(msg.url)) });
+          break;
+        case "exists":
+          sendResponse({ ok: true, data: await api("/api/exists?url=" + encodeURIComponent(msg.url)) });
+          break;
         case "save-settings":
           sendResponse({
             ok: true,

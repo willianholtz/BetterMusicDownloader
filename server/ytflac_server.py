@@ -615,6 +615,14 @@ def index_read() -> dict:
     return {"tracks": {}, "videos": {}}
 
 
+def _index_write(data: dict) -> None:
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        INDEX_FILE.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def index_record(job: dict, target: str, final: str) -> None:
     """Anota o que ja foi baixado (o nome do arquivo nao carrega mais o ID)."""
     with lock:
@@ -652,9 +660,14 @@ def already_done(job: dict, dest: Path, outdir: Path) -> str:
         # nome mudou em algum momento: confere o indice pelo ID da faixa
         sid = str(meta.get("spotify_id") or "")
         if sid:
-            known = index_read()["tracks"].get(sid, "")
-            if known and Path(known).is_file():
-                return known
+            idx = index_read()
+            known = idx["tracks"].get(sid, "")
+            if known:
+                if Path(known).is_file():
+                    return known
+                # stale: remove
+                idx["tracks"].pop(sid, None)
+                _index_write(idx)
             # e os arquivos antigos, que tinham o ID no nome
             try:
                 for old in outdir.rglob("*.*"):
@@ -665,9 +678,13 @@ def already_done(job: dict, dest: Path, outdir: Path) -> str:
         return ""
     vid = video_id(job.get("url", ""))
     if vid:
-        known = index_read()["videos"].get(vid, "")
-        if known and Path(known).is_file():
-            return known
+        idx = index_read()
+        known = idx["videos"].get(vid, "")
+        if known:
+            if Path(known).is_file():
+                return known
+            idx["videos"].pop(vid, None)
+            _index_write(idx)
         for ext in (".mp3", ".flac", ".opus", ".ogg", ".m4a", ".webm"):
             try:
                 for f in outdir.rglob(f"*{ext}"):
@@ -1060,11 +1077,38 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 if ref[0] == "track":
-                    self._json(200, {"kind": "track", "tracks": [spotify_track_meta(*ref)]})
+                    t = spotify_track_meta(*ref)
+                    t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, Path(load_config()["outdir"]).expanduser(), Path(load_config()["outdir"]).expanduser()))
+                    self._json(200, {"kind": "track", "tracks": [t]})
                 else:
-                    self._json(200, spotify_collection_meta(*ref))
+                    coll = spotify_collection_meta(*ref)
+                    outdir = Path(load_config()["outdir"]).expanduser()
+                    group = safe_name(coll["name"]) if len(coll["tracks"]) > 1 else ""
+                    dest = outdir / group if group else outdir
+                    for t in coll["tracks"]:
+                        t["exists"] = bool(already_done({"meta": t, "url": t.get("source", ""), "force": False}, dest, outdir))
+                    coll["existing"] = sum(1 for t in coll["tracks"] if t.get("exists"))
+                    self._json(200, coll)
             except Exception as e:  # noqa: BLE001
                 self._json(502, {"error": f"Falha ao ler o Spotify: {e}"})
+            return
+
+        if path == "/api/exists":
+            url = (qs.get("url") or [""])[0].strip()
+            vid = video_id(url)
+            outdir = Path(load_config()["outdir"]).expanduser()
+            if vid:
+                f = already_done({"url": url, "force": False}, None, outdir)
+                self._json(200, {"exists": bool(f), "file": f or ""})
+                return
+            # spotify single
+            ref = spotify_ref(url)
+            if ref and ref[0] == "track":
+                t = spotify_track_meta(*ref)
+                t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, outdir, outdir))
+                self._json(200, {"exists": t["exists"], "title": t["title"]})
+                return
+            self._json(400, {"error": "URL inválida"})
             return
 
         if path == "/api/jobs":
@@ -1102,6 +1146,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         path = urlparse(self.path).path.lower()
         body = self._read_json()
+
+        if path == "/api/exists":
+            url = (qs.get("url") or [""])[0].strip()
+            vid = video_id(url)
+            outdir = Path(load_config()["outdir"]).expanduser()
+            if vid:
+                f = already_done({"url": url, "force": False}, None, outdir)
+                self._json(200, {"exists": bool(f), "file": f or ""})
+                return
+            # spotify single
+            ref = spotify_ref(url)
+            if ref and ref[0] == "track":
+                t = spotify_track_meta(*ref)
+                t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, outdir, outdir))
+                self._json(200, {"exists": t["exists"], "title": t["title"]})
+                return
+            self._json(400, {"error": "URL inválida"})
+            return
 
         if path == "/api/jobs":
             url = (body.get("url") or "").strip()

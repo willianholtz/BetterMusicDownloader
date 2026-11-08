@@ -91,6 +91,21 @@ h1 {
   overflow: hidden;
 }
 
+.row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-icon {
+  font-size: 16px;
+  line-height: 1;
+  cursor: help;
+}
+.status-icon.green { color: var(--ok); }
+.status-icon.orange { color: #ff9800; }
+.status-icon.red { color: var(--warn); }
+
 .video-url {
   color: var(--fg-dim);
   font-size: 11px;

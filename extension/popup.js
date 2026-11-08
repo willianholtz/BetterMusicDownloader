@@ -85,6 +85,28 @@ async function loadCurrentTab() {
     $("videoTitle").textContent = cleanTitle(raw);
     $("videoUrl").textContent = currentUrl;
     $("download").textContent = spotify ? "Baixar do Spotify em MP3" : "Baixar áudio em MP3";
+    // status icon (green/orange/red)
+    const icon = $("statusIcon");
+    if (icon) {
+      icon.className = "status-icon";
+      icon.textContent = "●";
+      if (spotify) {
+        const res = await send({ type: "resolve", url: currentUrl });
+        if (res.ok && res.data && Array.isArray(res.data.tracks)) {
+          const total = res.data.tracks.length;
+          const existing = res.data.existing != null ? res.data.existing : res.data.tracks.filter((t) => t.exists).length;
+          if (existing === 0) { icon.classList.add("red"); icon.title = `Nunca baixada (0/${total})`; }
+          else if (existing === total) { icon.classList.add("green"); icon.title = `Toda baixada (${existing}/${total})`; }
+          else { icon.classList.add("orange"); icon.title = `Parcialmente baixada (${existing}/${total})`; }
+        }
+      } else {
+        const res = await send({ type: "exists", url: currentUrl });
+        if (res.ok && res.data) {
+          if (res.data.exists) { icon.classList.add("green"); icon.title = "Já baixado"; }
+          else { icon.classList.add("red"); icon.title = "Nunca baixado"; }
+        }
+      }
+    }
   }
 }
 
