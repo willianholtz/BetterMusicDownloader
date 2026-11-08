@@ -49,15 +49,30 @@ YouTube delivers at most **Opus ~160 kbps** (free) or **~256 kbps** (Premium, wi
 
 ```bash
 cd ~/Documentos/GitHub/youtube-flac
-bash install.sh
+bash install.sh          # terminal mode (default)
+bash install.sh --gui    # try zenity/kdialog/dialog if available
 ```
 
 The script:
-1. checks `python3` and `ffmpeg`;
-2. downloads `yt-dlp` into `~/.local/bin` if missing;
+1. checks `python3` and `ffmpeg` (installs `ffmpeg` automatically if missing,
+   detecting `pacman`/`apt`/`dnf`);
+2. creates the `yt-dlp` venv in `~/.local/share/ytflac/venv` (with `mutagen`);
 3. installs and enables the `ytflac.service` (systemd `--user`);
 4. creates `~/Música/YouTube FLAC`;
-5. shows how to load the extension in Vivaldi.
+5. opens Vivaldi on `vivaldi://extensions` automatically (if `vivaldi` is in PATH).
+
+### Optional GUI tools
+
+`zenity`, `kdialog` or `dialog` are **optional**. If one of them is installed and you
+run `bash install.sh --gui`, the script shows progress in graphical windows. Without
+any of them, everything runs in the terminal — no functionality is lost.
+
+```bash
+# Arch
+sudo pacman -S zenity        # or kdialog, dialog
+# Debian/Ubuntu
+sudo apt install zenity
+```
 
 ### Load in Vivaldi
 
