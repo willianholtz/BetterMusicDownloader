@@ -105,6 +105,7 @@ h1 {
 .status-icon.green { color: var(--ok); }
 .status-icon.orange { color: #ff9800; }
 .status-icon.red { color: var(--warn); }
+.status-icon.gray { color: var(--muted); }
 
 .video-url {
   color: var(--fg-dim);

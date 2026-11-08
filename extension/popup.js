@@ -93,7 +93,9 @@ async function loadCurrentTab() {
       if (spotify) {
         const res = await send({ type: "resolve", url: currentUrl });
         if (!res.ok) {
-          icon.classList.add("red"); icon.textContent = "●"; icon.title = "Não foi possível verificar: " + (res.error || "");
+          icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Não foi possível verificar (serviço offline?)";
+        } else if (res.data && res.data.error) {
+          icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Playlist personalizada ou requer login — status não verificável.";
         } else if (res.data && Array.isArray(res.data.tracks) && res.data.tracks.length) {
           const total = res.data.tracks.length;
           const existing = res.data.existing != null ? res.data.existing : res.data.tracks.filter((t) => t.exists).length;
@@ -101,11 +103,11 @@ async function loadCurrentTab() {
           else if (existing === total) { icon.classList.add("green"); icon.textContent = "●"; icon.title = `Toda baixada (${existing}/${total})`; }
           else { icon.classList.add("orange"); icon.textContent = "●"; icon.title = `Parcialmente baixada (${existing}/${total})`; }
         } else {
-          icon.classList.add("red"); icon.textContent = "●"; icon.title = "Não foi possível ler a playlist.";
+          icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Não foi possível ler a playlist.";
         }
       } else {
         const res = await send({ type: "exists", url: currentUrl });
-        if (!res.ok) { icon.classList.add("red"); icon.textContent = "●"; icon.title = "Não foi possível verificar"; }
+        if (!res.ok) { icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Não foi possível verificar (serviço offline?)"; }
         else if (res.data && res.data.exists) { icon.classList.add("green"); icon.textContent = "●"; icon.title = "Já baixado"; }
         else { icon.classList.add("red"); icon.textContent = "●"; icon.title = "Nunca baixado"; }
       }
