@@ -33,13 +33,17 @@ let serviceOnline = false;
 
 function send(msg) {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage(msg, (res) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: chrome.runtime.lastError.message });
-      } else {
-        resolve(res || { ok: false, error: "sem resposta" });
-      }
-    });
+    const attempt = (n) => {
+      chrome.runtime.sendMessage(msg, (res) => {
+        if (chrome.runtime.lastError) {
+          if (n < 2) setTimeout(() => attempt(n + 1), 300);
+          else resolve({ ok: false, error: chrome.runtime.lastError.message });
+        } else {
+          resolve(res || { ok: false, error: "sem resposta" });
+        }
+      });
+    };
+    attempt(0);
   });
 }
 
@@ -258,6 +262,7 @@ function updateStatusLine(jobs, history) {
 }
 
 let lastHistory = [];
+let lastBatchInfo = null;
 async function poll() {
   const res = await send({ type: "jobs" });
   if (res.ok && res.data && Array.isArray(res.data.jobs)) {
@@ -282,6 +287,11 @@ async function startDownload() {
   }
   const jobs = (res.data && res.data.jobs) || [];
   const skipped = (res.data && res.data.skipped) || 0;
+  if (jobs.length) {
+    const name = (res.data && res.data.name) || jobs[0].title || "Download";
+    lastBatchInfo = { name, total: jobs.length, skipped, started: Date.now() };
+    chrome.storage.local.set({ lastBatch: lastBatchInfo });
+  }
   if (skipped > 0) {
     const msg = $("saveMsg");
     if (msg) {
@@ -336,6 +346,14 @@ async function boot() {
   const online = await refreshHealth();
   applyI18n();
   if (online) {
+    chrome.storage.local.get(["lastBatch"], (r) => {
+      const lb = r && r.lastBatch;
+      if (lb && lb.name) {
+        lastBatchInfo = lb;
+        const el = $("statusLine");
+        if (el) { el.textContent = `Último enviado: ${lb.name} (${lb.total} faixas)`; el.className = "status-line"; }
+      }
+    });
     await loadSettings();
     await poll();
     await loadHistory();
