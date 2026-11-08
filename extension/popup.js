@@ -186,13 +186,6 @@ function renderJobs(jobs) {
     const actions = document.createElement("div");
     actions.className = "job-actions";
 
-    if (job.status === "done" && job.file) {
-      const a = document.createElement("button");
-      a.className = "link";
-      a.textContent = "salvar .mp3";
-      a.onclick = () => chrome.tabs.create({ url: `${API}/api/file/${job.id}` });
-      actions.append(a);
-    }
     if (job.status === "error" && job.error) {
       const e = document.createElement("span");
       e.className = "muted";
@@ -242,6 +235,14 @@ function renderHistory(entries) {
     sub.className = "muted";
     sub.textContent = `${e.done || 0}/${e.total || 1} · ${new Date((e.finished || 0) * 1000).toLocaleString()}`;
     li.append(sub);
+    if (e.first_file) {
+      const loc = document.createElement("div");
+      loc.className = "muted";
+      loc.style.fontSize = "10px";
+      loc.style.wordBreak = "break-all";
+      loc.textContent = (e.exists ? "📁 " : "⚠ apagado: ") + e.first_file;
+      li.append(loc);
+    }
     ul.append(li);
   }
 }
@@ -268,12 +269,7 @@ function updateStatusLine(jobs, history) {
     el.className = "status-line active";
     return;
   }
-  const last = (history || [])[0];
-  if (last) {
-    el.textContent = (chrome.i18n.getMessage("statusLast") || "Último: {0} — {1}/{2} concluídas").replace("{0}",last.name).replace("{1}",last.done||0).replace("{2}",last.total||1);
-    el.className = "status-line done";
-    return;
-  }
+  // (removido: "Último: ..." — o histórico abaixo já mostra)
   el.textContent = chrome.i18n.getMessage("statusIdle") || "Nenhum download em andamento.";
   el.className = "status-line idle";
 }

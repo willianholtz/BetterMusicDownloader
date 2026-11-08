@@ -30,18 +30,18 @@
     <p data-i18n="offlineHint">Rode systemctl --user start ytflac ou execute install.sh.</p>
   </section>
 
-  <section class="list-block">
-    <div class="list-head">
+  <details id="downloadsBox" class="list-block" open>
+    <summary class="list-head">
       <span data-i18n="downloadsTitle">Downloads</span>
       <div class="row-inline">
         <button id="stopAll" class="link" data-i18n="stopAll">Parar tudo</button>
         <button id="clearList" class="link" data-i18n="clearList">Limpar lista</button>
         <button id="openFolder" class="link" data-i18n="openFolder" title="Abrir pasta de destino">abrir pasta</button>
       </div>
-    </div>
+    </summary>
     <ul id="jobs" class="jobs"></ul>
     <p id="jobsEmpty" class="muted" data-i18n="noDownloads">Nenhum download ainda.</p>
-  </section>
+  </details>
 
   <details id="historyBox" class="settings" open>
     <summary data-i18n="historyTitle">Histórico</summary>

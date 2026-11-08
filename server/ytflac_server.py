@@ -458,6 +458,10 @@ def _history_read() -> list:
     try:
         data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
         if isinstance(data, list):
+            for e in data:
+                files = e.get("files") or []
+                e["exists"] = any(os.path.isfile(f) for f in files) if files else False
+                e["first_file"] = files[0] if files else ""
             return data
     except (OSError, ValueError):
         pass
@@ -510,6 +514,13 @@ def batch_update(bid: str, ok: bool) -> None:
         if b["done"] + b["error"] >= b["total"]:
             b["status"] = "done"
             b["finished"] = time.time()
+            # coleta os arquivos produzidos (para mostrar no historico)
+            files = []
+            with lock:
+                for jid in b["job_ids"]:
+                    job = jobs.get(jid)
+                    if job and job.get("file"):
+                        files.append(job["file"])
             # grava no historico
             entries = _history_read()
             entries.insert(0, {
@@ -521,6 +532,7 @@ def batch_update(bid: str, ok: bool) -> None:
                 "error": b["error"],
                 "finished": b["finished"],
                 "ok": b["error"] == 0,
+                "files": files,
             })
             entries = entries[:200]
             _history_write(entries)
