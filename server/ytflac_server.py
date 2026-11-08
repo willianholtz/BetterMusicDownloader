@@ -64,6 +64,9 @@ INDEX_FILE = CONFIG_DIR / "downloaded.json"
 
 jobs: dict[str, dict] = {}
 jobs_order: list[str] = []
+batches: dict[str, dict] = {}
+batches_order: list[str] = []
+HISTORY_FILE = CONFIG_DIR / "history.json"
 lock = threading.Lock()
 pool = ThreadPoolExecutor(max_workers=3)
 procs: dict[str, subprocess.Popen] = {}
@@ -426,6 +429,7 @@ def new_job(url: str, **extra) -> dict:
         "query": extra.get("query", ""),
         "want_duration": extra.get("want_duration", 0),
         "force": bool(extra.get("force")),
+        "batch_id": extra.get("batch_id", ""),
         "created": time.time(),
         "finished": 0.0,
     }
@@ -449,6 +453,77 @@ def snapshot(jid: str) -> dict | None:
     with lock:
         job = jobs.get(jid)
         return dict(job) if job else None
+
+def _history_read() -> list:
+    try:
+        data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except (OSError, ValueError):
+        pass
+    return []
+
+
+def _history_write(entries: list) -> None:
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        HISTORY_FILE.write_text(json.dumps(entries, indent=1, ensure_ascii=False),
+                               encoding="utf-8")
+    except OSError:
+        pass
+
+
+def batch_new(name: str, total: int, job_ids: list[str], group: str = "") -> str:
+    bid = uuid.uuid4().hex[:12]
+    b = {
+        "id": bid,
+        "name": name or "Download",
+        "group": group,
+        "total": total,
+        "done": 0,
+        "error": 0,
+        "job_ids": list(job_ids),
+        "created": time.time(),
+        "finished": 0.0,
+        "status": "running",  # running | done
+    }
+    with lock:
+        batches[bid] = b
+        batches_order.append(bid)
+        while len(batches_order) > 100:
+            old = batches_order.pop(0)
+            batches.pop(old, None)
+    return bid
+
+
+def batch_update(bid: str, ok: bool) -> None:
+    if not bid:
+        return
+    with lock:
+        b = batches.get(bid)
+        if not b:
+            return
+        if ok:
+            b["done"] += 1
+        else:
+            b["error"] += 1
+        if b["done"] + b["error"] >= b["total"]:
+            b["status"] = "done"
+            b["finished"] = time.time()
+            # grava no historico
+            entries = _history_read()
+            entries.insert(0, {
+                "id": b["id"],
+                "name": b["name"],
+                "group": b["group"],
+                "total": b["total"],
+                "done": b["done"],
+                "error": b["error"],
+                "finished": b["finished"],
+                "ok": b["error"] == 0,
+            })
+            entries = entries[:200]
+            _history_write(entries)
 
 
 # ---------------------------------------------------------------- download
@@ -705,6 +780,7 @@ def run_job(jid: str) -> None:
 
     done_file = "" if job.get("force") else already_done(job, dest, outdir)
     if done_file:
+        batch_update(job.get("batch_id", ""), True)
         update(jid, status="done", percent=100.0, file=done_file,
                title=Path(done_file).stem, finished=time.time())
         return
@@ -798,11 +874,21 @@ def run_job(jid: str) -> None:
         return
     finally:
         procs.pop(jid, None)
+        # limpa arquivos temporarios orfaos deste job
+        try:
+            for tmp in outdir.glob(f".ytflac-{jid}*"):
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+        except OSError:
+            pass
 
     if code != 0:
         cur = snapshot(jid) or {}
         if cur.get("status") == "cancelled":
             return
+        batch_update(job.get("batch_id", ""), False)
         update(jid, status="error",
                error=cur.get("error") or f"yt-dlp saiu com código {code}. Veja {log_path}.",
                finished=time.time())
@@ -835,6 +921,7 @@ def run_job(jid: str) -> None:
         final = tag_spotify_file(final, meta, dest, fmt)
 
     index_record(job, target, final)
+    batch_update(job.get("batch_id", ""), True)
     update(jid, status="done", percent=100.0, file=final,
            title=Path(final).stem, finished=time.time())
     _mirror_log(jid, log_path)
@@ -961,6 +1048,10 @@ class Handler(BaseHTTPRequestHandler):
                             "min_bitrate": int(cfg.get("min_bitrate", 0) or 0)})
             return
 
+        if path == "/api/history":
+            self._json(200, {"history": _history_read()})
+            return
+
         if path == "/api/resolve":
             url = (qs.get("url") or [""])[0]
             ref = spotify_ref(url)
@@ -1023,6 +1114,10 @@ class Handler(BaseHTTPRequestHandler):
                                       query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
                                       want_duration=meta.get("duration") or 0,
                                       title=f"{' / '.join(meta['artists'])} - {meta['title']}")
+                        bid = batch_new(job["title"], 1, [job["id"]], "")
+                        with lock:
+                            jobs[job["id"]]["batch_id"] = bid
+                        job["batch_id"] = bid
                         pool.submit(run_job, job["id"])
                         self._json(200, {"jobs": [job], "kind": "track"})
                         return
@@ -1032,18 +1127,41 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     made = []
                     group = safe_name(coll["name"]) if len(coll["tracks"]) > 1 else ""
+                    _cfg = load_config()
+                    _outdir = Path(_cfg["outdir"]).expanduser()
+                    _dest = _outdir / group if group else _outdir
+                    skipped = 0
                     for t in coll["tracks"]:
                         meta = dict(t)
                         meta["album"] = meta.get("album") or (coll["name"] if coll["kind"] == "album" else "")
+                        # conta quantas ja existem (para avisar o usuario)
+                        probe = new_job(meta["source"], source="spotify", meta=meta, force=False,
+                                        query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
+                                        want_duration=meta.get("duration") or 0,
+                                        group=group,
+                                        title=f"{' / '.join(meta['artists'])} - {meta['title']}")
+                        if already_done(probe, _dest, _outdir):
+                            skipped += 1
+                        jobs.pop(probe["id"], None)  # remove o probe (nao baixa)
+                        try:
+                            jobs_order.remove(probe["id"])
+                        except ValueError:
+                            pass
                         job = new_job(meta["source"], source="spotify", meta=meta, force=body.get("force", False),
                                       query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
                                       want_duration=meta.get("duration") or 0,
                                       group=group,
                                       title=f"{' / '.join(meta['artists'])} - {meta['title']}")
                         made.append(job)
-                        pool.submit(run_job, job["id"])
+                    bid = batch_new(coll["name"], len(made), [j["id"] for j in made], group)
+                    for j in made:
+                        with lock:
+                            jobs[j["id"]]["batch_id"] = bid
+                        j["batch_id"] = bid
+                        pool.submit(run_job, j["id"])
                     self._json(200, {"jobs": made, "kind": coll["kind"],
-                                     "name": coll["name"], "count": len(made)})
+                                     "name": coll["name"], "count": len(made),
+                                     "skipped": skipped})
                 except Exception as e:  # noqa: BLE001
                     self._json(502, {"error": f"Falha ao ler o Spotify: {e}"})
                 return
@@ -1052,6 +1170,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "URL inválida (YouTube ou Spotify)"})
                 return
             job = new_job(url, force=body.get("force", False))
+            bid = batch_new(job["title"] or "YouTube", 1, [job["id"]], "")
+            with lock:
+                jobs[job["id"]]["batch_id"] = bid
+            job["batch_id"] = bid
             pool.submit(run_job, job["id"])
             self._json(200, {"jobs": [job], "kind": "video"})
             return
@@ -1060,6 +1182,11 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 jobs.clear()
                 jobs_order.clear()
+            self._json(200, {"ok": True})
+            return
+
+        if path == "/api/history/clear":
+            _history_write([])
             self._json(200, {"ok": True})
             return
 

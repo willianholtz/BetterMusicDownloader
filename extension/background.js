@@ -18,6 +18,9 @@ async function startJobs(url) {
   });
   const created = (data && data.jobs) || [];
   for (const job of created) trackJob(job.id);
+  if (data && data.name && created.length > 1) {
+    groupTrackers.set(data.name, { ids: created.map((j) => j.id), notified: false });
+  }
   return { created, data };
 }
 
@@ -87,6 +90,7 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
 /* Acompanha o job em segundo plano para avisar quando terminar, mesmo com o
    popup fechado. */
 const tracking = new Set();
+const groupTrackers = new Map();
 
 function trackJob(id) {
   if (!id || tracking.has(id)) return;
@@ -94,14 +98,27 @@ function trackJob(id) {
   const timer = setInterval(async () => {
     try {
       const job = await api(`/api/jobs?id=${encodeURIComponent(id)}`);
-      if (job.status === "done") {
+      if (job.status === "done" || job.status === "error" || job.status === "cancelled") {
         clearInterval(timer);
         tracking.delete(id);
-        notify(chrome.i18n.getMessage("notifyDone") || "MP3 ready", job.title || "Audio converted successfully.");
-      } else if (job.status === "error" || job.status === "cancelled") {
-        clearInterval(timer);
-        tracking.delete(id);
-        if (job.status === "error") notify(chrome.i18n.getMessage("notifyFail") || "Failed", job.error || "Download error.");
+        if (job.status === "done") notify(chrome.i18n.getMessage("notifyDone") || "MP3 ready", job.title || "Audio converted successfully.");
+        else if (job.status === "error") notify(chrome.i18n.getMessage("notifyFail") || "Failed", job.error || "Download error.");
+        if (job.group && groupTrackers.has(job.group)) {
+          const trk = groupTrackers.get(job.group);
+          if (!trk.notified) {
+            try {
+              const all = await api("/api/jobs");
+              const grpJobs = (all.jobs || []).filter((j) => j.group === job.group);
+              const finished = grpJobs.filter((j) => ["done","error","cancelled"].includes(j.status));
+              if (grpJobs.length && finished.length === grpJobs.length) {
+                const ok = grpJobs.filter((j) => j.status === "done").length;
+                trk.notified = true;
+                notify(chrome.i18n.getMessage("notifyPlaylistDone") || "Playlist finished",
+                       `${job.group} — ${ok}/${grpJobs.length}`);
+              }
+            } catch (e) {}
+          }
+        }
       }
     } catch {
       clearInterval(timer);
@@ -135,6 +152,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           break;
         case "clear-list":
           sendResponse({ ok: true, data: await api("/api/jobs/clear", { method: "POST" }) });
+          break;
+        case "history":
+          sendResponse({ ok: true, data: await api("/api/history") });
+          break;
+        case "clear-history":
+          sendResponse({ ok: true, data: await api("/api/history/clear", { method: "POST" }) });
           break;
         case "download": {
           const { created, data } = await startJobs(msg.url);

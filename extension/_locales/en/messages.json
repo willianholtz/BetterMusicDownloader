@@ -73,5 +73,20 @@
   },
   "notifyStartFail": {
     "message": "Failed to start"
+  },
+  "historyTitle": {
+    "message": "History"
+  },
+  "noHistory": {
+    "message": "No history."
+  },
+  "clearHistory": {
+    "message": "Clear history"
+  },
+  "notifyPlaylistDone": {
+    "message": "Playlist finished"
+  },
+  "notifyTrackDone": {
+    "message": "Download finished"
   }
 }

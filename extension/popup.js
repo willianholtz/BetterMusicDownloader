@@ -141,7 +141,7 @@ function renderJobs(jobs) {
     if (job.status === "done" && job.file) {
       const a = document.createElement("button");
       a.className = "link";
-      a.textContent = "salvar .flac";
+      a.textContent = "salvar .mp3";
       a.onclick = () => chrome.tabs.create({ url: `${API}/api/file/${job.id}` });
       actions.append(a);
     }
@@ -167,6 +167,44 @@ function renderJobs(jobs) {
   }
 }
 
+function renderHistory(entries) {
+  const ul = $("history");
+  if (!ul) return;
+  ul.innerHTML = "";
+  const empty = $("historyEmpty");
+  if (!entries || !entries.length) {
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  if (empty) empty.classList.add("hidden");
+  for (const e of entries.slice(0, 20)) {
+    const li = document.createElement("li");
+    li.className = "job";
+    const top = document.createElement("div");
+    top.className = "job-top";
+    const title = document.createElement("div");
+    title.className = "job-title";
+    title.textContent = e.name || "Download";
+    const state = document.createElement("span");
+    state.className = "job-state " + (e.ok ? "done" : "error");
+    state.textContent = e.ok ? "✓" : "erro";
+    top.append(title, state);
+    li.append(top);
+    const sub = document.createElement("div");
+    sub.className = "muted";
+    sub.textContent = `${e.done || 0}/${e.total || 1} · ${new Date((e.finished || 0) * 1000).toLocaleString()}`;
+    li.append(sub);
+    ul.append(li);
+  }
+}
+
+async function loadHistory() {
+  const res = await send({ type: "history" });
+  if (res.ok && res.data && Array.isArray(res.data.history)) {
+    renderHistory(res.data.history);
+  }
+}
+
 async function poll() {
   const res = await send({ type: "jobs" });
   if (res.ok && res.data && Array.isArray(res.data.jobs)) {
@@ -189,6 +227,14 @@ async function startDownload() {
     return;
   }
   const jobs = (res.data && res.data.jobs) || [];
+  const skipped = (res.data && res.data.skipped) || 0;
+  if (skipped > 0) {
+    const msg = $("saveMsg");
+    if (msg) {
+      msg.textContent = `${skipped} já existiam — baixando só as novas.`;
+      setTimeout(() => (msg.textContent = ""), 4000);
+    }
+  }
   if (jobs.length > 1) {
     btn.textContent = `${jobs.length} faixas na fila`;
     setTimeout(() => (btn.textContent = isSpotify(currentUrl) ? "Baixar do Spotify em MP3" : "Baixar áudio em MP3"), 2500);
@@ -238,6 +284,7 @@ async function boot() {
   if (online) {
     await loadSettings();
     await poll();
+    await loadHistory();
     pollTimer = setInterval(poll, 900);
   }
 }
@@ -245,6 +292,10 @@ async function boot() {
 $("download").addEventListener("click", startDownload);
 $("save").addEventListener("click", saveSettings);
 $("openFolder").addEventListener("click", () => send({ type: "open-folder" }));
+$("clearHistory").addEventListener("click", async () => {
+  const res = await send({ type: "clear-history" });
+  if (res.ok) { renderHistory([]); $("historyEmpty").classList.remove("hidden"); }
+});
 $("clearList").addEventListener("click", async () => {
   const res = await send({ type: "clear-list" });
   if (res.ok) { renderJobs([]); $("jobsEmpty").classList.remove("hidden"); }

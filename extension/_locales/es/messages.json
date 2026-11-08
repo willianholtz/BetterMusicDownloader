@@ -73,5 +73,20 @@
   },
   "notifyStartFail": {
     "message": "Error al iniciar"
+  },
+  "historyTitle": {
+    "message": "Historial"
+  },
+  "noHistory": {
+    "message": "Sin historial."
+  },
+  "clearHistory": {
+    "message": "Limpiar historial"
+  },
+  "notifyPlaylistDone": {
+    "message": "Playlist terminada"
+  },
+  "notifyTrackDone": {
+    "message": "Descarga terminada"
   }
 }
