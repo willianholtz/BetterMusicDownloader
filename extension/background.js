@@ -160,7 +160,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true, data: await api("/api/jobs/clear", { method: "POST" }) });
           break;
         case "play":
-          sendResponse({ ok: true, data: await api("/api/play", { method: "POST", body: JSON.stringify({ id: msg.id }) }) });
+          sendResponse({ ok: true, data: await api("/api/play", { method: "POST", body: JSON.stringify({ id: msg.id, file: msg.file || "" }) }) });
           break;
         case "stop-all": {
           const r = await api("/api/jobs");

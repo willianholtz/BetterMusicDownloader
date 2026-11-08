@@ -190,7 +190,7 @@ function renderJobs(jobs) {
       const play = document.createElement("button");
       play.className = "link";
       play.textContent = "▶ tocar";
-      play.onclick = () => send({ type: "play", id: job.id });
+      play.onclick = () => send({ type: "play", id: job.id, file: job.file || "" });
       actions.append(play);
     }
     if (job.status === "error" && job.error) {
@@ -249,6 +249,13 @@ function renderHistory(entries) {
       loc.style.wordBreak = "break-all";
       loc.textContent = (e.exists ? "📁 " : "⚠ apagado: ") + e.first_file;
       li.append(loc);
+      if (e.exists) {
+        const play = document.createElement("button");
+        play.className = "link";
+        play.textContent = "▶ tocar";
+        play.onclick = () => send({ type: "play", file: e.first_file });
+        li.append(play);
+      }
     }
     ul.append(li);
   }
@@ -292,16 +299,13 @@ async function poll() {
       chrome.storage.local.set({ lastJobs: res.data.jobs });
       renderJobs(res.data.jobs);
       updateStatusLine(res.data.jobs, lastHistory);
-    } else if (lastJobs && lastJobs.length) {
-      // servico reiniciou ou jobs concluidos: mantem a lista em cache, nao apaga
-      renderJobs(lastJobs);
-      updateStatusLine([], lastHistory);
     } else {
+      // sem jobs ativos: limpa cache e mostra idle
+      lastJobs = [];
+      chrome.storage.local.remove(["lastJobs"]);
       renderJobs([]);
       updateStatusLine([], lastHistory);
     }
-  } else {
-    if (lastJobs && lastJobs.length) renderJobs(lastJobs);
   }
 }
 
@@ -380,16 +384,10 @@ async function boot() {
   const online = await refreshHealth();
   applyI18n();
   if (online) {
-    chrome.storage.local.get(["lastJobs", "lastBatch"], (r) => {
+    chrome.storage.local.get(["lastJobs"], (r) => {
       if (r && r.lastJobs && r.lastJobs.length) {
         lastJobs = r.lastJobs;
         renderJobs(r.lastJobs);
-      }
-      const lb = r && r.lastBatch;
-      if (lb && lb.name) {
-        lastBatchInfo = lb;
-        const el = $("statusLine");
-        if (el && (!lastJobs || !lastJobs.length)) { el.textContent = `Último enviado: ${lb.name} (${lb.total} faixas)`; el.className = "status-line"; }
       }
     });
     await loadSettings();
