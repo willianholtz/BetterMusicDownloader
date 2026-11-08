@@ -33,17 +33,23 @@ let serviceOnline = false;
 
 function send(msg) {
   return new Promise((resolve) => {
+    let done = false;
+    const finish = (r) => { if (!done) { done = true; resolve(r); } };
     const attempt = (n) => {
+      if (done) return;
       chrome.runtime.sendMessage(msg, (res) => {
+        if (done) return;
         if (chrome.runtime.lastError) {
           if (n < 2) setTimeout(() => attempt(n + 1), 300);
-          else resolve({ ok: false, error: chrome.runtime.lastError.message });
+          else finish({ ok: false, error: chrome.runtime.lastError.message });
         } else {
-          resolve(res || { ok: false, error: "sem resposta" });
+          finish(res || { ok: false, error: "sem resposta" });
         }
       });
     };
     attempt(0);
+    // timeout de seguranca: nao pode ficar "enviando" para sempre
+    setTimeout(() => finish({ ok: false, error: "sem resposta (timeout)" }), 25000);
   });
 }
 

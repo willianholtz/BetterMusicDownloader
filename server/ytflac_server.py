@@ -436,8 +436,8 @@ def new_job(url: str, **extra) -> dict:
     with lock:
         jobs[jid] = job
         jobs_order.append(jid)
-        # mantem so os 300 mais recentes na memoria
-        while len(jobs_order) > 300:
+        # mantem so os 100 mais recentes na memoria
+        while len(jobs_order) > 100:
             old = jobs_order.pop(0)
             jobs.pop(old, None)
     return job
@@ -503,6 +503,8 @@ def batch_new(name: str, total: int, job_ids: list[str], group: str = "") -> str
 def batch_update(bid: str, ok: bool) -> None:
     if not bid:
         return
+    files = []
+    entry = None
     with lock:
         b = batches.get(bid)
         if not b:
@@ -514,16 +516,11 @@ def batch_update(bid: str, ok: bool) -> None:
         if b["done"] + b["error"] >= b["total"]:
             b["status"] = "done"
             b["finished"] = time.time()
-            # coleta os arquivos produzidos (para mostrar no historico)
-            files = []
-            with lock:
-                for jid in b["job_ids"]:
-                    job = jobs.get(jid)
-                    if job and job.get("file"):
-                        files.append(job["file"])
-            # grava no historico
-            entries = _history_read()
-            entries.insert(0, {
+            for jid in b["job_ids"]:
+                job = jobs.get(jid)
+                if job and job.get("file"):
+                    files.append(job["file"])
+            entry = {
                 "id": b["id"],
                 "name": b["name"],
                 "group": b["group"],
@@ -533,9 +530,12 @@ def batch_update(bid: str, ok: bool) -> None:
                 "finished": b["finished"],
                 "ok": b["error"] == 0,
                 "files": files,
-            })
-            entries = entries[:200]
-            _history_write(entries)
+            }
+    if entry is not None:
+        entries = _history_read()
+        entries.insert(0, entry)
+        entries = entries[:200]
+        _history_write(entries)
 
 
 # ---------------------------------------------------------------- download
@@ -1146,7 +1146,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, job)
             else:
                 with lock:
-                    listing = [dict(jobs[j]) for j in reversed(jobs_order) if j in jobs]
+                    listing = [dict(jobs[j]) for j in reversed(jobs_order) if j in jobs][:50]
                 self._json(200, {"jobs": listing})
             return
 

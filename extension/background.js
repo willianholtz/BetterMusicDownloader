@@ -25,21 +25,22 @@ async function startJobs(url) {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(API + path, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-  });
-  const text = await res.text();
-  let data = null;
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 20000);
   try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { raw: text };
+    const res = await fetch(API + path, {
+      ...options,
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+    if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+    return data;
+  } finally {
+    clearTimeout(t);
   }
-  if (!res.ok) {
-    throw new Error((data && data.error) || `HTTP ${res.status}`);
-  }
-  return data;
 }
 
 function notify(title, message) {
