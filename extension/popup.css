@@ -259,3 +259,37 @@ footer {
   border-top: 1px solid var(--line);
   padding-top: 8px;
 }
+
+details.list-block {
+  margin: 8px 12px 0;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+details.list-block > summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  user-select: none;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--fg-dim);
+}
+details.list-block > summary::-webkit-details-marker { display: none; }
+details.list-block > summary::before {
+  content: "▸";
+  margin-right: 6px;
+  transition: transform .15s;
+  color: var(--muted);
+}
+details[open].list-block > summary::before { transform: rotate(90deg); }
+details.list-block > summary:hover { background: var(--bg-3); }
+details.list-block .jobs { padding: 0 10px 8px; margin: 0; }
+details.list-block .muted { padding: 0 10px 8px; margin: 0; }

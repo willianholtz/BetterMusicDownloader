@@ -186,6 +186,13 @@ function renderJobs(jobs) {
     const actions = document.createElement("div");
     actions.className = "job-actions";
 
+    if (job.status === "done" && job.file) {
+      const play = document.createElement("button");
+      play.className = "link";
+      play.textContent = "▶ tocar";
+      play.onclick = () => send({ type: "play", id: job.id });
+      actions.append(play);
+    }
     if (job.status === "error" && job.error) {
       const e = document.createElement("span");
       e.className = "muted";

@@ -1265,6 +1265,25 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"jobs": [job], "kind": "video"})
             return
 
+        if path == "/api/play":
+            jid = (body.get("id") or "").strip()
+            job = snapshot(jid)
+            if not job or job.get("status") != "done" or not job.get("file"):
+                self._json(404, {"error": "arquivo não disponível"})
+                return
+            outdir = Path(load_config()["outdir"]).expanduser().resolve()
+            f = Path(job["file"]).resolve()
+            if outdir not in f.parents or f.suffix.lower() not in (".mp3", ".flac", ".opus", ".ogg", ".m4a", ".webm") or not f.is_file():
+                self._json(403, {"error": "caminho inválido"})
+                return
+            try:
+                subprocess.Popen(["xdg-open", str(f)],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self._json(200, {"ok": True})
+            except OSError as e:
+                self._json(500, {"error": str(e)})
+            return
+
         if path == "/api/jobs/clear":
             with lock:
                 jobs.clear()
