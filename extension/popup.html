@@ -73,15 +73,20 @@
         <option value="original">Original (sem conversão, mantém fonte)</option>
       </select>
     </label>
-    <label class="inline">
+    <label class="opt">
       <input id="normalize" type="checkbox" />
-      <span data-i18n="labelNormalize">Normalizar volume (loudnorm)</span>
+      <span class="opt-text">
+        <span class="opt-label" data-i18n="labelNormalize">Normalizar volume (loudnorm)</span>
+        <span class="opt-hint" data-i18n="normalizeHint">Iguala o volume entre as faixas (loudnorm, EBU R128).</span>
+      </span>
     </label>
-    <label class="inline">
+    <label class="opt" id="mp3gainOpt">
       <input id="mp3gain" type="checkbox" />
-      <span data-i18n="labelMp3gain">Aplicar ganho no arquivo (mp3gain)</span>
+      <span class="opt-text">
+        <span class="opt-label" data-i18n="labelMp3gain">Aplicar ganho no arquivo (mp3gain)</span>
+        <span class="opt-hint" id="mp3gainHint" data-i18n="mp3gainHint">Grava o volume na própria música, sem re-encodar. Vale em qualquer player.</span>
+      </span>
     </label>
-    <span id="mp3gainHint" class="muted" data-i18n="mp3gainHint">Grava o volume na própria música, sem re-encodar. Vale em qualquer player.</span>
     <label>
       <span data-i18n="labelMinBitrate">Qualidade mínima da fonte (kbps, 0 = aceitar tudo)</span>
       <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />

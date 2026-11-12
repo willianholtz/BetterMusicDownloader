@@ -47,6 +47,9 @@
   "labelNormalize": {
     "message": "Normalizar volume (loudnorm)"
   },
+  "normalizeHint": {
+    "message": "Iguala o volume entre as faixas (loudnorm, EBU R128)."
+  },
   "labelMp3gain": {
     "message": "Aplicar ganho no arquivo (mp3gain)"
   },

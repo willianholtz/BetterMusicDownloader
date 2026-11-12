@@ -47,6 +47,9 @@
   "labelNormalize": {
     "message": "Normalize volume (loudnorm)"
   },
+  "normalizeHint": {
+    "message": "Evens out the loudness between tracks (loudnorm, EBU R128)."
+  },
   "labelMp3gain": {
     "message": "Apply gain to the file (mp3gain)"
   },

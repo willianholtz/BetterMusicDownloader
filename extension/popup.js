@@ -365,6 +365,8 @@ async function loadSettings() {
     const g = $("mp3gain");
     g.checked = !!res.data.mp3gain && avail;
     g.disabled = !avail;
+    const row = $("mp3gainOpt");
+    if (row) row.classList.toggle("disabled", !avail);
     const hint = $("mp3gainHint");
     if (hint) hint.textContent = chrome.i18n.getMessage(avail ? "mp3gainHint" : "mp3gainMissing");
     $("minBitrate").value = res.data.min_bitrate || 0;
