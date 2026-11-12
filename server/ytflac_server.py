@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -142,6 +142,68 @@ def is_youtube_url(url: str) -> bool:
     if p.scheme not in ("http", "https"):
         return False
     return (p.hostname or "").lower() in YOUTUBE_HOSTS
+
+
+def youtube_playlist_id(url: str) -> str:
+    """ID da playlist quando a URL aponta para a playlist inteira.
+
+    Video dentro de playlist (watch?v=...&list=...) devolve "" de proposito:
+    nesse caso o usuario quer so aquele video, como sempre foi.
+    """
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return ""
+    if (p.hostname or "").lower() not in YOUTUBE_HOSTS:
+        return ""
+    q = parse_qs(p.query)
+    lst = (q.get("list") or [""])[0].strip()
+    if not lst:
+        return ""
+    if (q.get("v") or [""])[0].strip():
+        return ""
+    return lst if "playlist" in p.path.lower() else ""
+
+
+def playlist_prefix(index: int, total: int, title: str) -> str:
+    """Prefixo numerico do arquivo; vazio se o titulo ja vem numerado.
+
+    Evita nome duplicado tipo "01 - Artista - 01 - Musica.mp3".
+    """
+    if re.match(r"^\D{0,60}?\b\d{1,2}\s*[-–—.)]\s", title or ""):
+        return ""
+    width = max(2, len(str(total)))
+    return f"{index:0{width}d} - "
+
+
+def youtube_playlist_meta(list_id: str) -> dict:
+    """Le a playlist do YouTube sem baixar nada (--flat-playlist, ~1 s)."""
+    ytdlp = find_binary("yt-dlp")
+    if not ytdlp:
+        raise RuntimeError("yt-dlp não encontrado")
+    url = f"https://www.youtube.com/playlist?list={list_id}"
+    cmd = [ytdlp, "--flat-playlist", "--no-warnings", "-J", url] + js_runtime()
+    out = subprocess.run(cmd, capture_output=True, text=True, timeout=180,
+                         encoding="utf-8", errors="replace")
+    if out.returncode != 0:
+        err = [l for l in (out.stderr or "").splitlines() if l.strip()]
+        raise RuntimeError(err[-1] if err else f"yt-dlp saiu com código {out.returncode}")
+    data = json.loads(out.stdout)
+    entries = []
+    for e in data.get("entries") or []:
+        if not e or not e.get("id"):
+            continue
+        entries.append({
+            "id": e["id"],
+            "title": e.get("title") or e["id"],
+            "duration": e.get("duration") or 0,
+        })
+    return {
+        "name": data.get("title") or "Playlist",
+        "uploader": data.get("uploader") or data.get("channel") or "",
+        "count": data.get("playlist_count") or len(entries),
+        "entries": entries,
+    }
 
 
 def spotify_ref(url: str) -> tuple[str, str] | None:
@@ -430,6 +492,7 @@ def new_job(url: str, **extra) -> dict:
         "want_duration": extra.get("want_duration", 0),
         "force": bool(extra.get("force")),
         "batch_id": extra.get("batch_id", ""),
+        "name_prefix": extra.get("name_prefix", ""),
         "created": time.time(),
         "finished": 0.0,
     }
@@ -821,9 +884,13 @@ def run_job(jid: str) -> None:
         deezer_isrc(meta)
         update(jid, meta=meta)
     # faixas do Spotify: baixa para um nome temporario e depois grava as tags
-    template = outdir / NAME_TEMPLATE
     if meta:
         template = outdir / f".ytflac-{jid}.%(ext)s"
+    else:
+        # playlist do YouTube: nome vem do titulo do video, numerado, na pasta da playlist
+        prefix = job.get("name_prefix") or ""
+        tpl = (prefix + "%(title)s.%(ext)s") if (prefix or job.get("group")) else NAME_TEMPLATE
+        template = dest / tpl
 
     cmd = [
         ytdlp,
@@ -935,13 +1002,16 @@ def run_job(jid: str) -> None:
     cur = snapshot(jid) or {}
     final = cur.get("file", "")
     if not final or not Path(final).is_file():
-        # fallback: arquivo .flac mais recente na pasta
+        # fallback: arquivo mais recente na pasta (filtra audio e o prefixo do job)
         try:
-            ext = fmt if fmt != "opus" else "opus"
-            # opus pode vir como webm/m4a/ogg dependendo da fonte
+            search = outdir if meta else dest
             pattern = f".ytflac-{jid}*.*" if meta else "*.*"
-            flacs = sorted(outdir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
-            final = str(flacs[0]) if flacs else ""
+            prefix = job.get("name_prefix") or ""
+            cand = [p for p in search.glob(pattern)
+                    if p.suffix.lower() in (".mp3", ".flac", ".opus", ".ogg", ".m4a", ".webm")
+                    and (not prefix or p.name.startswith(prefix))]
+            cand.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            final = str(cand[0]) if cand else ""
         except OSError:
             final = ""
     if not final:
@@ -1251,6 +1321,44 @@ class Handler(BaseHTTPRequestHandler):
                                      "skipped": skipped})
                 except Exception as e:  # noqa: BLE001
                     self._json(502, {"error": f"Falha ao ler o Spotify: {e}"})
+                return
+
+            pl = youtube_playlist_id(url)
+            if pl:
+                try:
+                    coll = youtube_playlist_meta(pl)
+                except Exception as e:  # noqa: BLE001
+                    self._json(502, {"error": f"Falha ao ler a playlist: {e}"})
+                    return
+                if not coll["entries"]:
+                    self._json(400, {"error": "Playlist vazia, privada ou indisponível."})
+                    return
+                force = bool(body.get("force", False))
+                group = safe_name(coll["name"])
+                _outdir = Path(load_config()["outdir"]).expanduser()
+                _dest = _outdir / group
+                total = len(coll["entries"])
+                made, skipped = [], 0
+                for i, e in enumerate(coll["entries"], 1):
+                    vurl = f"https://www.youtube.com/watch?v={e['id']}"
+                    if not force and already_done({"url": vurl, "force": False}, _dest, _outdir):
+                        skipped += 1
+                        continue
+                    made.append(new_job(
+                        vurl, group=group, force=force, title=e["title"],
+                        name_prefix=playlist_prefix(i, total, e["title"])))
+                if not made:
+                    self._json(200, {"jobs": [], "kind": "playlist", "name": coll["name"],
+                                     "count": 0, "skipped": skipped})
+                    return
+                bid = batch_new(coll["name"], len(made), [j["id"] for j in made], group)
+                for j in made:
+                    with lock:
+                        jobs[j["id"]]["batch_id"] = bid
+                    j["batch_id"] = bid
+                    pool.submit(run_job, j["id"])
+                self._json(200, {"jobs": made, "kind": "playlist", "name": coll["name"],
+                                 "count": len(made), "skipped": skipped})
                 return
 
             if not is_youtube_url(url):
