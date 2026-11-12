@@ -77,6 +77,11 @@
       <input id="normalize" type="checkbox" />
       <span data-i18n="labelNormalize">Normalizar volume (loudnorm)</span>
     </label>
+    <label class="inline">
+      <input id="mp3gain" type="checkbox" />
+      <span data-i18n="labelMp3gain">Aplicar ganho no arquivo (mp3gain)</span>
+    </label>
+    <span id="mp3gainHint" class="muted" data-i18n="mp3gainHint">Grava o volume na própria música, sem re-encodar. Vale em qualquer player.</span>
     <label>
       <span data-i18n="labelMinBitrate">Qualidade mínima da fonte (kbps, 0 = aceitar tudo)</span>
       <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />

@@ -47,6 +47,15 @@
   "labelNormalize": {
     "message": "Normalizar volume (loudnorm)"
   },
+  "labelMp3gain": {
+    "message": "Aplicar ganho no arquivo (mp3gain)"
+  },
+  "mp3gainHint": {
+    "message": "Grava o volume na própria música, sem re-encodar. Vale em qualquer player."
+  },
+  "mp3gainMissing": {
+    "message": "mp3gain não instalado — instale para habilitar (yay -S mp3gain)."
+  },
   "labelMinBitrate": {
     "message": "Qualidade mínima da fonte (kbps, 0 = aceitar tudo)"
   },

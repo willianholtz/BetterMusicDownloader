@@ -361,6 +361,12 @@ async function loadSettings() {
     $("cookies").value = res.data.cookies || "";
     $("format").value = res.data.format || "mp3";
     $("normalize").checked = !!res.data.normalize;
+    const avail = res.data.mp3gain_available !== false;
+    const g = $("mp3gain");
+    g.checked = !!res.data.mp3gain && avail;
+    g.disabled = !avail;
+    const hint = $("mp3gainHint");
+    if (hint) hint.textContent = chrome.i18n.getMessage(avail ? "mp3gainHint" : "mp3gainMissing");
     $("minBitrate").value = res.data.min_bitrate || 0;
   }
 }
@@ -371,6 +377,7 @@ async function saveSettings() {
     cookies: $("cookies").value.trim(),
     format: $("format").value,
     normalize: $("normalize").checked,
+    mp3gain: $("mp3gain").checked,
     min_bitrate: parseInt($("minBitrate").value || "0", 10) || 0,
   };
   const res = await send({ type: "save-settings", payload });

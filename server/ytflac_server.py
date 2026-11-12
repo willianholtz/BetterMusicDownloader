@@ -107,7 +107,8 @@ def venv_python() -> str | None:
 
 def load_config() -> dict:
     cfg = {"outdir": str(DEFAULT_OUTDIR), "cookies": "",
-            "format": "mp3", "normalize": True, "min_bitrate": 0}
+            "format": "mp3", "normalize": True, "min_bitrate": 0,
+            "mp3gain": False}
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict):
@@ -820,6 +821,27 @@ def normalize_file(path: str) -> str:
     return str(p)
 
 
+def apply_mp3gain(path: str) -> str:
+    """Aplica o ganho direto no MP3 com mp3gain (sem re-encodar).
+
+    O mp3gain edita o campo global_gain dos frames: o audio comprimido nao e'
+    recomprimido, entao nao ha perda de qualidade. -k evita clipping e -s s
+    grava a informacao de desfazer no proprio arquivo (tag APEv2).
+    """
+    p = Path(path)
+    if not p.is_file() or p.suffix.lower() != ".mp3":
+        return path
+    exe = find_binary("mp3gain")
+    if not exe:
+        return path
+    try:
+        subprocess.run([exe, "-q", "-r", "-k", "-p", "-s", "s", str(p)],
+                       check=True, capture_output=True, timeout=300)
+    except (OSError, subprocess.SubprocessError):
+        return path
+    return str(p)
+
+
 def run_job(jid: str) -> None:
     job = snapshot(jid)
     if not job or job.get("status") == "cancelled":
@@ -1028,6 +1050,10 @@ def run_job(jid: str) -> None:
         update(jid, status="converting", percent=100.0)
         final = normalize_file(final)
 
+    if cfg.get("mp3gain") and fmt == "mp3":
+        update(jid, status="converting", percent=100.0)
+        final = apply_mp3gain(final)
+
     if meta:
         update(jid, status="tagging", percent=100.0)
         final = tag_spotify_file(final, meta, dest, fmt)
@@ -1147,6 +1173,7 @@ class Handler(BaseHTTPRequestHandler):
                 "version": VERSION,
                 "ytdlp": find_binary("yt-dlp"),
                 "ffmpeg": find_binary("ffmpeg"),
+                "mp3gain": find_binary("mp3gain") or "",
                 "outdir": load_config()["outdir"],
                 "format": load_config().get("format", "mp3"),
             })
@@ -1157,6 +1184,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"outdir": cfg["outdir"], "cookies": cfg.get("cookies", ""),
                             "format": cfg.get("format", "mp3"),
                             "normalize": bool(cfg.get("normalize", True)),
+                            "mp3gain": bool(cfg.get("mp3gain", False)),
+                            "mp3gain_available": bool(find_binary("mp3gain")),
                             "min_bitrate": int(cfg.get("min_bitrate", 0) or 0)})
             return
 
@@ -1434,6 +1463,8 @@ class Handler(BaseHTTPRequestHandler):
                     cfg["format"] = fmt
             if "normalize" in body:
                 cfg["normalize"] = bool(body.get("normalize"))
+            if "mp3gain" in body:
+                cfg["mp3gain"] = bool(body.get("mp3gain"))
             if "min_bitrate" in body:
                 try:
                     cfg["min_bitrate"] = max(0, int(body.get("min_bitrate") or 0))

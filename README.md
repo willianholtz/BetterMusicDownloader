@@ -95,6 +95,15 @@ sudo apt install zenity
   only completes what is missing. To force a re-download, send
   `{"url": "...", "force": true}` to the API.
 
+### YouTube playlists
+
+A pure playlist URL (`youtube.com/playlist?list=…`) downloads **the whole
+playlist**: one job per video, a folder named after the playlist, files numbered
+(`01 - Title.mp3`, skipped when the title already carries its own number) and
+already-downloaded items are left alone. A video *inside* a playlist
+(`watch?v=…&list=…`) still downloads only that video — open the playlist URL
+itself when you want everything.
+
 ## Settings (popup → Settings)
 
 | Field | Purpose |
@@ -103,6 +112,7 @@ sudo apt install zenity
 | cookies.txt | optional, for videos requiring login (and Premium for 256 kbps) |
 | Output format | **MP3** (default), **M4A/AAC**, **Opus**, **OGG Vorbis**, **FLAC** (re-encoded, not true lossless), **ALAC**, **WAV**, **Original** (no conversion) |
 | Normalize volume | applies loudnorm (EBU R128) — avoids "quiet" tracks |
+| Apply gain to the file (mp3gain) | bakes the level into the MP3, **without re-encoding**, so any player respects it. Needs `mp3gain` installed (AUR); option stays disabled otherwise. Works in 1.5 dB steps and saves undo data in the file. |
 | Minimum quality (kbps) | 0 = accept everything. YouTube free delivers at most ~160 kbps. |
 
 The `cookies.txt` can be exported with the "Get cookies.txt LOCALLY" extension.
