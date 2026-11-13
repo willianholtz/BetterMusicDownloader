@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
