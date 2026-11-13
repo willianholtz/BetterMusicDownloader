@@ -760,6 +760,60 @@ def pick_target(query: str, want_duration: float) -> str:
     return f"https://www.youtube.com/watch?v={best}"
 
 
+def pick_targets(query: str, want_duration: float, n: int = 3) -> list[str]:
+    """Top-N candidatos (URLs) por pontuacao, para fallback em caso de 403.
+
+    Retorna ate `n` URLs; o primeiro e o melhor. Se a busca falhar, devolve
+    uma unica busca generica.
+    """
+    ytdlp = find_binary("yt-dlp")
+    if not ytdlp:
+        return [f"ytsearch1:{query}"]
+    cmd = [ytdlp, "--flat-playlist", "--no-warnings", "--no-quiet", "--print",
+           "%(id)s\t%(duration)s\t%(title)s\t%(channel)s", f"ytsearch{n*3}:{query}"]
+    cmd += js_runtime()
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                             encoding="utf-8", errors="replace").stdout
+    except (OSError, subprocess.SubprocessError):
+        return [f"ytsearch1:{query}"]
+
+    want = norm(query)
+    scored = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3 or not parts[0].strip():
+            continue
+        vid, dur, title = parts[0].strip(), parts[1], parts[2]
+        try:
+            d = float(dur)
+        except ValueError:
+            d = 0.0
+        score = 0.0
+        if want_duration and d:
+            score -= abs(d - want_duration)
+            if abs(d - want_duration) <= 3:
+                score += 60
+        title_n = norm(title)
+        score += 12 * len(set(want.split()) & set(title_n.split())) / max(1, len(want.split()))
+        if "topic" in title_n or "official" in title_n:
+            score += 4
+        scored.append((score, vid))
+    scored.sort(reverse=True)
+    urls = []
+    seen = set()
+    for score, vid in scored:
+        if vid in seen:
+            continue
+        seen.add(vid)
+        urls.append(f"https://www.youtube.com/watch?v={vid}")
+        if len(urls) >= n:
+            break
+    if not urls:
+        return [f"ytsearch1:{query}"]
+    return urls
+
+
 def safe_name(s: str) -> str:
     s = re.sub(r'[\\/:*?"<>|]+', " ", s or "").strip()
     s = re.sub(r"\s+", " ", s)
@@ -980,7 +1034,10 @@ def run_job(jid: str) -> None:
     target = job["url"]
     if job.get("query"):
         update(jid, status="searching", percent=0.0)
-        target = pick_target(job["query"], job.get("want_duration") or 0)
+        cands = pick_targets(job["query"], job.get("want_duration") or 0)
+        update(jid, candidates=cands)
+    else:
+        update(jid, candidates=[target] if target else [])
     if (snapshot(jid) or {}).get("status") == "cancelled":
         return
 
@@ -1020,7 +1077,7 @@ def run_job(jid: str) -> None:
         tpl = (prefix + "%(title)s.%(ext)s") if (prefix or job.get("group")) else NAME_TEMPLATE
         template = dest / tpl
 
-    cmd = [
+    cmd_base = [
         ytdlp,
         "--no-playlist",
         "--newline",
@@ -1038,77 +1095,105 @@ def run_job(jid: str) -> None:
         # mantem o stream original (sem re-codificar)
         pass
     else:
-        cmd += ["-x", "--audio-format", fmt, "--audio-quality", "0"]
+        cmd_base += ["-x", "--audio-format", fmt, "--audio-quality", "0"]
     if fmt != "original":
-        cmd += ["--embed-thumbnail", "--convert-thumbnails", "jpg"]
-    cmd += js_runtime()
+        cmd_base += ["--embed-thumbnail", "--convert-thumbnails", "jpg"]
+    cmd_base += js_runtime()
     if cfg.get("cookies") and Path(cfg["cookies"]).expanduser().is_file():
-        cmd += ["--cookies", str(Path(cfg["cookies"]).expanduser())]
-    cmd.append(target)
+        cmd_base += ["--cookies", str(Path(cfg["cookies"]).expanduser())]
 
     update(jid, status="downloading", percent=0.0)
     log_dir = CONFIG_DIR / "jobs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{jid}.log"
 
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            encoding="utf-8",
-            errors="replace",
-        )
-        procs[jid] = proc
-        with open(log_path, "w", encoding="utf-8") as log:
-            for raw in proc.stdout:
-                line = ANSI.sub("", raw).rstrip("\n")
-                log.write(line + "\n")
-                log.flush()
+    candidates = (snapshot(jid) or {}).get("candidates") or ([target] if target else [])
+    if not candidates:
+        candidates = [target] if target else []
 
-                if line.startswith("FILEPATH:"):
-                    update(jid, file=line[len("FILEPATH:"):].strip())
-                    continue
+    code = 1
+    last_err = ""
+    stop_all = False
+    for ci, cand in enumerate(candidates[:3]):
+        for attempt in range(3):
+            if (snapshot(jid) or {}).get("status") == "cancelled":
+                return
+            update(jid, status="downloading", percent=0.0)
+            try:
+                proc = subprocess.Popen(
+                    cmd_base + [cand],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                procs[jid] = proc
+                mode = "a" if (ci or attempt) else "w"
+                with open(log_path, mode, encoding="utf-8") as log:
+                    if ci or attempt:
+                        log.write("\n=== tentativa %d.%d: %s ===\n" % (ci + 1, attempt + 1, cand))
+                    for raw in proc.stdout:
+                        line = ANSI.sub("", raw).rstrip("\n")
+                        log.write(line + "\n")
+                        log.flush()
 
-                m = PROG_DL.match(line)
-                if m and (snapshot(jid) or {}).get("status") != "converting":
-                    try:
-                        update(jid, percent=float(m.group(1)))
-                    except ValueError:
-                        pass
-                    s = PROG_SPEED.search(line)
-                    e = PROG_ETA.search(line)
-                    if s or e:
-                        update(jid, speed=s.group(1) if s else "", eta=e.group(1) if e else "")
-                    continue
+                        if line.startswith("FILEPATH:"):
+                            update(jid, file=line[len("FILEPATH:"):].strip())
+                            continue
 
-                if line.startswith("[ExtractAudio]") or line.startswith("[Metadata]") or line.startswith("[ThumbnailsConvertor]"):
-                    if (snapshot(jid) or {}).get("status") != "cancelled":
-                        update(jid, status="converting", percent=100.0)
+                        m = PROG_DL.match(line)
+                        if m and (snapshot(jid) or {}).get("status") != "converting":
+                            try:
+                                update(jid, percent=float(m.group(1)))
+                            except ValueError:
+                                pass
+                            s = PROG_SPEED.search(line)
+                            e = PROG_ETA.search(line)
+                            if s or e:
+                                update(jid, speed=s.group(1) if s else "", eta=e.group(1) if e else "")
+                            continue
 
-                if line.startswith("ERROR:"):
-                    update(jid, error=line[6:].strip())
+                        if line.startswith("[ExtractAudio]") or line.startswith("[Metadata]") or line.startswith("[ThumbnailsConvertor]"):
+                            if (snapshot(jid) or {}).get("status") != "cancelled":
+                                update(jid, status="converting", percent=100.0)
 
-        code = proc.wait()
-    except Exception as e:  # noqa: BLE001 - qualquer falha vira mensagem para a UI
-        update(jid, status="error", error=str(e), finished=time.time())
-        procs.pop(jid, None)
-        return
-    finally:
-        procs.pop(jid, None)
-        # limpa arquivos temporarios INTERMEDIARIOS deste job (nao o .mp3 principal,
-        # que ainda precisa ser tagueado/movido; ele e limpo nos caminhos de erro)
-        try:
-            for tmp in outdir.glob(f".ytflac-{jid}*"):
-                if tmp.suffix.lower() in (".webm", ".jpg", ".jpeg", ".png", ".part") or tmp.name.endswith(".norm.mp3"):
-                    try:
-                        tmp.unlink()
-                    except OSError:
-                        pass
-        except OSError:
-            pass
+                        if line.startswith("ERROR:"):
+                            update(jid, error=line[6:].strip())
+
+                code = proc.wait()
+            except Exception as e:  # noqa: BLE001 - qualquer falha vira mensagem para a UI
+                update(jid, status="error", error=str(e), finished=time.time())
+                procs.pop(jid, None)
+                return
+            finally:
+                procs.pop(jid, None)
+                try:
+                    for tmp in outdir.glob(f".ytflac-{jid}*"):
+                        if tmp.suffix.lower() in (".webm", ".jpg", ".jpeg", ".png", ".part") or tmp.name.endswith(".norm.mp3"):
+                            try:
+                                tmp.unlink()
+                            except OSError:
+                                pass
+                except OSError:
+                    pass
+
+            if code == 0:
+                break
+            cur = snapshot(jid) or {}
+            if cur.get("status") == "cancelled":
+                return
+            last_err = cur.get("error") or "yt-dlp saiu com código %d." % code
+            is_403 = "403" in last_err or "Forbidden" in last_err
+            if is_403 and attempt < 2:
+                time.sleep(2)
+                continue
+            if not is_403:
+                stop_all = True
+            break
+        if code == 0 or stop_all:
+            break
 
     if code != 0:
         cur = snapshot(jid) or {}
@@ -1122,7 +1207,7 @@ def run_job(jid: str) -> None:
         except OSError:
             pass
         update(jid, status="error",
-               error=cur.get("error") or f"yt-dlp saiu com código {code}. Veja {log_path}.",
+               error=last_err or cur.get("error") or f"yt-dlp saiu com código {code}. Veja {log_path}.",
                finished=time.time())
         _mirror_log(jid, log_path)
         return
