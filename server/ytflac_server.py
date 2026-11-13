@@ -1852,7 +1852,7 @@ class Handler(BaseHTTPRequestHandler):
             if "loudness_target" in body:
                 try:
                     v = int(body.get("loudness_target"))
-                    if v in (-23, -18, -16, -14, -12, -10, -9):
+                    if v in (-23, -18, -16, -14, -12, -10, -9, -8, -6):
                         cfg["loudness_target"] = v
                 except (TypeError, ValueError):
                     pass
