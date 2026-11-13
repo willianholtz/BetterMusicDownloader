@@ -18,7 +18,9 @@
     "https://m.youtube.com/*",
     "https://music.youtube.com/*",
     "https://youtu.be/*",
-    "https://open.spotify.com/*"
+    "https://open.spotify.com/*",
+    "https://www.qobuz.com/*",
+    "https://play.qobuz.com/*"
   ],
   "background": {
     "service_worker": "background.js"

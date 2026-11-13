@@ -1,9 +1,9 @@
-# YouTube / Spotify → MP3 (Vivaldi extension)
+# YouTube / Spotify / Qobuz → MP3 (Vivaldi extension)
 
 Click the extension icon on any YouTube (or YouTube Music) video — or on a
-Spotify track, album or playlist — and the audio is downloaded and converted to
-**MP3 (VBR ~245–285 kbps, lame -V0)** into your music folder, with metadata and
-cover art embedded.
+Spotify/Qobuz track, album or playlist — and the audio is downloaded and
+converted to **MP3 (VBR ~245–285 kbps, lame -V0)** into your music folder, with
+metadata and cover art embedded.
 
 ```
 Vivaldi (extension)  --HTTP-->  local service 127.0.0.1:8765  -->  yt-dlp  -->  ffmpeg  -->  .mp3
@@ -31,6 +31,18 @@ Albums and playlists are downloaded track by track into a subfolder named after
 the collection. Album/track info comes from iTunes (which gets the original
 release right) and the ISRC from Deezer — Spotify's public embed does not expose
 the album of a standalone track.
+
+## Qobuz
+
+Track and album links work the same way. Like Spotify, the audio does **not**
+come from Qobuz (downloads there are paid/DRM-free purchases): the server reads
+the public metadata of the album/track via the Qobuz API (title, artists, album,
+date, ISRC, 640×640 cover, duration), finds the matching video on YouTube by
+**duration** and writes the MP3 with the same tags. Qobuz track links are of the
+form `https://play.qobuz.com/track/<id>` and album links
+`https://www.qobuz.com/<locale>/album/<slug>/<id>`.
+
+Albums are downloaded track by track into a subfolder named after the album.
 
 ## Quality
 

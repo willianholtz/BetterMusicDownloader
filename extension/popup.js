@@ -1,10 +1,14 @@
 /* YouTube -> FLAC: interface do popup. */
 
 const API = "http://127.0.0.1:8765";
-const MEDIA_RE = /^https?:\/\/((www\.|m\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)|(open|play)\.spotify\.com)\//i;
+const MEDIA_RE = /^https?:\/\/((www\.|m\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)|(open|play)\.spotify\.com|(www\.)?qobuz\.com|play\.qobuz\.com)\//i;
 
 function isSpotify(url) {
   return /^https?:\/\/(open|play)\.spotify\.com\//i.test(url);
+}
+
+function isQobuz(url) {
+  return /^https?:\/\/((www\.)?qobuz\.com|play\.qobuz\.com)\//i.test(url);
 }
 
 function cleanTitle(title) {
@@ -91,17 +95,20 @@ async function loadCurrentTab() {
 
   if (isMedia) {
     const spotify = isSpotify(currentUrl);
+    const qobuz = isQobuz(currentUrl);
+    const metaSource = spotify || qobuz;
     let resolvedName = "";
-    if (spotify) {
+    if (metaSource) {
       const r = await send({ type: "resolve", url: currentUrl });
       if (r.ok && r.data) {
         resolvedName = r.data.name || (r.data.tracks && r.data.tracks[0] && r.data.tracks[0].artists && r.data.tracks[0].artists.join(" / ")) || "";
       }
     }
-    const raw = forced ? (new URL(currentUrl).searchParams.get("v") || currentUrl) : (resolvedName || tab.title || (spotify ? "Spotify" : "Vídeo do YouTube"));
+    const sourceLabel = spotify ? "Spotify" : (qobuz ? "Qobuz" : "Vídeo do YouTube");
+    const raw = forced ? (new URL(currentUrl).searchParams.get("v") || currentUrl) : (resolvedName || tab.title || sourceLabel);
     $("videoTitle").textContent = cleanTitle(raw);
     $("videoUrl").textContent = currentUrl;
-    $("download").textContent = spotify ? "Baixar do Spotify em MP3" : "Baixar áudio em MP3";
+    $("download").textContent = spotify ? "Baixar do Spotify em MP3" : (qobuz ? "Baixar do Qobuz em MP3" : "Baixar áudio em MP3");
     // remove previous note
     const oldNote = document.getElementById("statusNote");
     if (oldNote) oldNote.remove();
@@ -110,7 +117,7 @@ async function loadCurrentTab() {
     if (icon) {
       icon.className = "status-icon";
       icon.textContent = "…";
-      if (spotify) {
+      if (metaSource) {
         const res = await send({ type: "resolve", url: currentUrl });
         if (!res.ok) {
           icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Não foi possível verificar (serviço offline?)";
@@ -345,10 +352,10 @@ async function startDownload() {
   }
   if (jobs.length > 1) {
     btn.textContent = `${jobs.length} faixas na fila`;
-    setTimeout(() => (btn.textContent = isSpotify(currentUrl) ? "Baixar do Spotify em MP3" : "Baixar áudio em MP3"), 2500);
+    setTimeout(() => (btn.textContent = isSpotify(currentUrl) ? "Baixar do Spotify em MP3" : (isQobuz(currentUrl) ? "Baixar do Qobuz em MP3" : "Baixar áudio em MP3")), 2500);
   } else {
     btn.textContent = "Baixar de novo";
-    setTimeout(() => (btn.textContent = isSpotify(currentUrl) ? "Baixar do Spotify em MP3" : "Baixar áudio em MP3"), 2500);
+    setTimeout(() => (btn.textContent = isSpotify(currentUrl) ? "Baixar do Spotify em MP3" : (isQobuz(currentUrl) ? "Baixar do Qobuz em MP3" : "Baixar áudio em MP3")), 2500);
   }
   btn.disabled = false;
   poll();

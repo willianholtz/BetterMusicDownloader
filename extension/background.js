@@ -7,6 +7,8 @@ const YT_MATCH = [
   "*://youtu.be/*",
   "*://*.youtube-nocookie.com/*",
   "*://open.spotify.com/*",
+  "*://*.qobuz.com/*",
+  "*://play.qobuz.com/*",
 ];
 
 /* Cria os jobs (um vídeo, ou várias faixas de um álbum/playlist) e acompanha

@@ -55,6 +55,7 @@ YOUTUBE_HOSTS = {
     "youtu.be", "www.youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com",
 }
 SPOTIFY_HOSTS = {"open.spotify.com", "play.spotify.com", "spotify.link", "spotify.app.link"}
+QOBUZ_HOSTS = {"www.qobuz.com", "qobuz.com", "play.qobuz.com"}
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
@@ -223,6 +224,33 @@ def spotify_ref(url: str) -> tuple[str, str] | None:
         parts = parts[1:]
     if len(parts) >= 2 and parts[0] in ("track", "album", "playlist", "episode"):
         return parts[0], parts[1]
+    return None
+
+
+def qobuz_ref(url: str) -> tuple[str, str] | None:
+    """(kind, id) de uma URL do Qobuz: track ou album."""
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return None
+    host = (p.hostname or "").lower()
+    if host not in QOBUZ_HOSTS:
+        return None
+    parts = [x for x in p.path.split("/") if x]
+    if host == "play.qobuz.com":
+        if len(parts) >= 2 and parts[0] in ("track", "album"):
+            return parts[0], parts[1]
+        return None
+    # www.qobuz.com/<locale>/album|track/<slug>/<id>
+    if "album" in parts:
+        idx = parts.index("album")
+        if idx + 2 < len(parts) or idx + 1 < len(parts):
+            # id is the last segment
+            return "album", parts[-1]
+    if "track" in parts:
+        idx = parts.index("track")
+        if idx + 1 < len(parts):
+            return "track", parts[-1]
     return None
 
 
@@ -469,6 +497,84 @@ def spotify_collection_meta(kind: str, sid: str) -> dict:
         "date": date,
         "tracks": tracks,
         "artist": entity.get("subtitle") or "",
+    }
+
+
+QOBUZ_APP_ID = "172934108"
+
+
+def _qobuz_get(path: str, params: dict | None = None) -> dict:
+    q = {"app_id": QOBUZ_APP_ID}
+    if params:
+        q.update(params)
+    qs = "&".join(f"{k}={quote(str(v))}" for k, v in q.items())
+    url = f"https://www.qobuz.com/api.json/0.2/{path}?{qs}"
+    return http_json(url, 25.0)
+
+
+def qobuz_track_meta(qid: str) -> dict:
+    """Metadados de uma faixa isolada do Qobuz."""
+    data = _qobuz_get("track/get", {"track_id": qid})
+    album = data.get("album") or {}
+    album_title = album.get("title") or ""
+    artists = [data.get("performer", {}).get("name") or ""] if data.get("performer") else []
+    if not artists or not artists[0]:
+        artists = [data.get("composer", {}).get("name") or "Artista"]
+    cover = (album.get("image") or {}).get("large") or (album.get("image") or {}).get("small") or ""
+    date = (data.get("release_date_original") or data.get("release_date_stream") or "")[:10]
+    track = {
+        "title": data.get("title") or "",
+        "artists": [a for a in artists if a],
+        "album": album_title,
+        "albumartist": artists[0] if len(artists) == 1 else "Various Artists",
+        "date": date,
+        "duration": float(data.get("duration") or 0),
+        "cover": cover,
+        "isrc": data.get("isrc") or "",
+        "track_number": data.get("track_number"),
+        "disc_number": data.get("media_number"),
+        "spotify_id": str(qid),
+        "source": f"https://play.qobuz.com/track/{qid}",
+    }
+    return track
+
+
+def qobuz_collection_meta(kind: str, qid: str) -> dict:
+    """Album do Qobuz: nome + lista de faixas."""
+    data = _qobuz_get("album/get", {"album_id": qid})
+    name = data.get("title") or "Qobuz"
+    artist_name = (data.get("artist") or {}).get("name") or ""
+    cover = (data.get("image") or {}).get("large") or (data.get("image") or {}).get("small") or ""
+    date = (data.get("release_date_original") or data.get("release_date_download") or "")[:10]
+    items = (data.get("tracks") or {}).get("items") or []
+    tracks = []
+    for it in items:
+        artists = [it.get("performer", {}).get("name") or ""] if it.get("performer") else []
+        if not artists or not artists[0]:
+            artists = [artist_name or "Artista"]
+        tracks.append({
+            "title": it.get("title") or "",
+            "artists": [a for a in artists if a],
+            "album": name,
+            "albumartist": artist_name or (artists[0] if len(artists) == 1 else "Various Artists"),
+            "date": date,
+            "duration": float(it.get("duration") or 0),
+            "cover": cover,
+            "isrc": it.get("isrc") or "",
+            "track_number": it.get("track_number") or (len(tracks) + 1),
+            "disc_number": it.get("media_number") or 1,
+            "spotify_id": str(it.get("id")),
+            "source": f"https://play.qobuz.com/track/{it.get('id')}",
+        })
+    for t in tracks:
+        t["track_total"] = len(tracks)
+    return {
+        "kind": "album",
+        "name": name,
+        "cover": cover,
+        "date": date,
+        "tracks": tracks,
+        "artist": artist_name,
     }
 
 
@@ -900,7 +1006,7 @@ def run_job(jid: str) -> None:
         return
 
     meta = job.get("meta") or None
-    if meta and job.get("source") == "spotify" and not (meta.get("isrc") and meta.get("album")):
+    if meta and job.get("source") in ("spotify", "qobuz") and not (meta.get("isrc") and meta.get("album")):
         if not meta.get("album"):
             itunes_fill(meta)
         deezer_isrc(meta)
@@ -1196,11 +1302,26 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/resolve":
             url = (qs.get("url") or [""])[0]
             ref = spotify_ref(url)
-            if not ref:
-                self._json(400, {"error": "URL do Spotify inválida"})
+            qref = qobuz_ref(url) if not ref else None
+            if not ref and not qref:
+                self._json(400, {"error": "URL inválida (Spotify ou Qobuz)"})
                 return
             try:
-                if ref[0] == "track":
+                if qref:
+                    if qref[0] == "track":
+                        t = qobuz_track_meta(qref[1])
+                        t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, Path(load_config()["outdir"]).expanduser(), Path(load_config()["outdir"]).expanduser()))
+                        self._json(200, {"kind": "track", "tracks": [t]})
+                    else:
+                        coll = qobuz_collection_meta(qref[0], qref[1])
+                        outdir = Path(load_config()["outdir"]).expanduser()
+                        group = safe_name(coll["name"]) if len(coll["tracks"]) > 1 else ""
+                        dest = outdir / group if group else outdir
+                        for t in coll["tracks"]:
+                            t["exists"] = bool(already_done({"meta": t, "url": t.get("source", ""), "force": False}, dest, outdir))
+                        coll["existing"] = sum(1 for t in coll["tracks"] if t.get("exists"))
+                        self._json(200, coll)
+                elif ref[0] == "track":
                     t = spotify_track_meta(*ref)
                     t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, Path(load_config()["outdir"]).expanduser(), Path(load_config()["outdir"]).expanduser()))
                     self._json(200, {"kind": "track", "tracks": [t]})
@@ -1214,7 +1335,7 @@ class Handler(BaseHTTPRequestHandler):
                     coll["existing"] = sum(1 for t in coll["tracks"] if t.get("exists"))
                     self._json(200, coll)
             except Exception as e:  # noqa: BLE001
-                self._json(502, {"error": f"Falha ao ler o Spotify: {e}"})
+                self._json(502, {"error": f"Falha ao ler a fonte: {e}"})
             return
 
         if path == "/api/exists":
@@ -1225,10 +1346,16 @@ class Handler(BaseHTTPRequestHandler):
                 f = already_done({"url": url, "force": False}, None, outdir)
                 self._json(200, {"exists": bool(f), "file": f or ""})
                 return
-            # spotify single
+            # spotify/qobuz single
             ref = spotify_ref(url)
+            qref = qobuz_ref(url) if not ref else None
             if ref and ref[0] == "track":
                 t = spotify_track_meta(*ref)
+                t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, outdir, outdir))
+                self._json(200, {"exists": t["exists"], "title": t["title"]})
+                return
+            if qref and qref[0] == "track":
+                t = qobuz_track_meta(qref[1])
                 t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, outdir, outdir))
                 self._json(200, {"exists": t["exists"], "title": t["title"]})
                 return
@@ -1279,10 +1406,16 @@ class Handler(BaseHTTPRequestHandler):
                 f = already_done({"url": url, "force": False}, None, outdir)
                 self._json(200, {"exists": bool(f), "file": f or ""})
                 return
-            # spotify single
+            # spotify/qobuz single
             ref = spotify_ref(url)
+            qref = qobuz_ref(url) if not ref else None
             if ref and ref[0] == "track":
                 t = spotify_track_meta(*ref)
+                t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, outdir, outdir))
+                self._json(200, {"exists": t["exists"], "title": t["title"]})
+                return
+            if qref and qref[0] == "track":
+                t = qobuz_track_meta(qref[1])
                 t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, outdir, outdir))
                 self._json(200, {"exists": t["exists"], "title": t["title"]})
                 return
@@ -1350,6 +1483,66 @@ class Handler(BaseHTTPRequestHandler):
                                      "skipped": skipped})
                 except Exception as e:  # noqa: BLE001
                     self._json(502, {"error": f"Falha ao ler o Spotify: {e}"})
+                return
+
+            qref = qobuz_ref(url)
+            if qref:
+                try:
+                    if qref[0] == "track":
+                        meta = qobuz_track_meta(qref[1])
+                        job = new_job(url, source="qobuz", meta=meta, force=body.get("force", False),
+                                      query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
+                                      want_duration=meta.get("duration") or 0,
+                                      title=f"{' / '.join(meta['artists'])} - {meta['title']}")
+                        bid = batch_new(job["title"], 1, [job["id"]], "")
+                        with lock:
+                            jobs[job["id"]]["batch_id"] = bid
+                        job["batch_id"] = bid
+                        pool.submit(run_job, job["id"])
+                        self._json(200, {"jobs": [job], "kind": "track"})
+                        return
+                    coll = qobuz_collection_meta(qref[0], qref[1])
+                    if not coll["tracks"]:
+                        self._json(400, {"error": "Não encontrei faixas nessa coleção."})
+                        return
+                    made = []
+                    group = safe_name(coll["name"]) if len(coll["tracks"]) > 1 else ""
+                    _cfg = load_config()
+                    _outdir = Path(_cfg["outdir"]).expanduser()
+                    _dest = _outdir / group if group else _outdir
+                    skipped = 0
+                    for t in coll["tracks"]:
+                        meta = dict(t)
+                        meta["album"] = meta.get("album") or (coll["name"] if coll["kind"] == "album" else "")
+                        probe = new_job(meta["source"], source="qobuz", meta=meta, force=False,
+                                        query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
+                                        want_duration=meta.get("duration") or 0,
+                                        group=group,
+                                        title=f"{' / '.join(meta['artists'])} - {meta['title']}")
+                        if already_done(probe, _dest, _outdir):
+                            skipped += 1
+                        jobs.pop(probe["id"], None)
+                        try:
+                            jobs_order.remove(probe["id"])
+                        except ValueError:
+                            pass
+                        job = new_job(meta["source"], source="qobuz", meta=meta, force=body.get("force", False),
+                                      query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
+                                      want_duration=meta.get("duration") or 0,
+                                      group=group,
+                                      title=f"{' / '.join(meta['artists'])} - {meta['title']}")
+                        made.append(job)
+                    bid = batch_new(coll["name"], len(made), [j["id"] for j in made], group)
+                    for j in made:
+                        with lock:
+                            jobs[j["id"]]["batch_id"] = bid
+                        j["batch_id"] = bid
+                        pool.submit(run_job, j["id"])
+                    self._json(200, {"jobs": made, "kind": coll["kind"],
+                                     "name": coll["name"], "count": len(made),
+                                     "skipped": skipped})
+                except Exception as e:  # noqa: BLE001
+                    self._json(502, {"error": f"Falha ao ler o Qobuz: {e}"})
                 return
 
             pl = youtube_playlist_id(url)
