@@ -419,6 +419,8 @@ async function loadSettings() {
       sel.value = "";
       if (custom) custom.style.display = "none";
     }
+    const lt = $("loudnessTarget");
+    if (lt) lt.value = String(res.data.loudness_target || -16);
   }
 }
 
@@ -436,6 +438,7 @@ async function saveSettings() {
       if (sel.value === "custom") return ($("nameFormatCustom").value || "").trim();
       return sel.value;
     })(),
+    loudness_target: parseInt($("loudnessTarget").value || "-16", 10) || -16,
   };
   const res = await send({ type: "save-settings", payload });
   const msg = $("saveMsg");

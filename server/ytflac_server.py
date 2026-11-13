@@ -109,7 +109,8 @@ def venv_python() -> str | None:
 def load_config() -> dict:
     cfg = {"outdir": str(DEFAULT_OUTDIR), "cookies": "",
             "format": "mp3", "normalize": True, "min_bitrate": 0,
-            "mp3gain": False, "name_format": ""}
+            "mp3gain": False, "name_format": "",
+            "loudness_target": -16}
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict):
@@ -989,6 +990,7 @@ def normalize_file(path: str) -> str:
     dinamica da musica. Evita o 'pumping' do loudnorm dinamico, que podia
     abaixar o volume no meio da faixa.
 
+    Alvo de loudness (I) vem de `loudness_target` no config (padrao -16).
     Faz duas passadas: mede I/TP/LRA/thresh na primeira e aplica um ganho
     constante na segunda (linear=true). Se a medicao falhar, cai no loudnorm
     simples (uma passada). Devolve o path.
@@ -996,6 +998,11 @@ def normalize_file(path: str) -> str:
     p = Path(path)
     if not p.is_file():
         return path
+    cfg = load_config()
+    try:
+        target_i = int(cfg.get("loudness_target", -16))
+    except (TypeError, ValueError):
+        target_i = -16
     ffmpeg = find_binary("ffmpeg") or "ffmpeg"
     tmp = p.with_name(p.stem + ".norm" + p.suffix)
 
@@ -1005,12 +1012,11 @@ def normalize_file(path: str) -> str:
         out = subprocess.run(
             [ffmpeg, "-y", "-hide_banner", "-loglevel", "info",
              "-i", str(p),
-             "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+             "-af", f"loudnorm=I={target_i}:TP=-1.5:LRA=11:print_format=json",
              "-f", "null", "-"],
             capture_output=True, text=True, timeout=300,
             encoding="utf-8", errors="replace")
         txt = (out.stderr or "") + (out.stdout or "")
-        # o JSON vem no final do stderr
         i = txt.rfind("{")
         j = txt.rfind("}")
         if i != -1 and j != -1 and j > i:
@@ -1027,12 +1033,12 @@ def normalize_file(path: str) -> str:
 
     # --- passada 2: aplicacao (linear quando temos medicao) ---
     if measured.get("I") is not None:
-        af = ("loudnorm=I=-16:TP=-1.5:LRA=11"
+        af = (f"loudnorm=I={target_i}:TP=-1.5:LRA=11"
               f":measured_I={measured['I']}:measured_TP={measured['TP']}"
               f":measured_LRA={measured['LRA']}:measured_thresh={measured['thresh']}"
               f":offset={measured.get('offset', 0)}:linear=true")
     else:
-        af = "loudnorm=I=-16:TP=-1.5:LRA=11"
+        af = f"loudnorm=I={target_i}:TP=-1.5:LRA=11"
 
     try:
         subprocess.run([
@@ -1456,7 +1462,8 @@ class Handler(BaseHTTPRequestHandler):
                             "mp3gain": bool(cfg.get("mp3gain", False)),
                             "mp3gain_available": bool(find_binary("mp3gain")),
                             "min_bitrate": int(cfg.get("min_bitrate", 0) or 0),
-                            "name_format": cfg.get("name_format", "")})
+                            "name_format": cfg.get("name_format", ""),
+                            "loudness_target": int(cfg.get("loudness_target", -16) or -16)})
             return
 
         if path == "/api/history":
@@ -1833,6 +1840,13 @@ class Handler(BaseHTTPRequestHandler):
                     pass
             if "name_format" in body:
                 cfg["name_format"] = str(body.get("name_format") or "").strip()
+            if "loudness_target" in body:
+                try:
+                    v = int(body.get("loudness_target"))
+                    if v in (-23, -18, -16, -14, -12, -10, -9):
+                        cfg["loudness_target"] = v
+                except (TypeError, ValueError):
+                    pass
             save_config(cfg)
             try:
                 Path(cfg["outdir"]).expanduser().mkdir(parents=True, exist_ok=True)

@@ -102,6 +102,18 @@
       <span class="muted">Placeholders: {n} {title} {artist} {album}. Ex.: {n} - {title}</span>
     </label>
     <label>
+      <span>Alvo de volume (LUFS, mais alto = mais alto)</span>
+      <select id="loudnessTarget">
+        <option value="-23">-23 (bem baixo)</option>
+        <option value="-18">-18 (baixo)</option>
+        <option value="-16">-16 (padrão)</option>
+        <option value="-14">-14 (alto)</option>
+        <option value="-12">-12 (mais alto)</option>
+        <option value="-10">-10 (bem alto)</option>
+      </select>
+      <span class="muted">Quanto menos negativo, mais alto o volume final.</span>
+    </label>
+    <label>
       <span data-i18n="labelMinBitrate">Qualidade mínima da fonte (kbps, 0 = aceitar tudo)</span>
       <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />
       <span class="muted" data-i18n="minBitrateHint">YouTube grátis entrega no máx ~160 kbps.</span>
