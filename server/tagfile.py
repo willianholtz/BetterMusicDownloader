@@ -162,7 +162,13 @@ def tag_opus(audio, meta, cover_path):
 
     data, mime = _cover_bytes(cover_path)
     if data:
-        audio.add_picture(data, mime, 3, "Cover")
+        from mutagen.flac import Picture
+        pic = Picture()
+        pic.type = 3
+        pic.mime = mime
+        pic.desc = "Cover"
+        pic.data = data
+        audio["METADATA_BLOCK_PICTURE"] = [base64.b64encode(pic.write()).decode("ascii")]
     audio.save()
 
 

@@ -1124,7 +1124,7 @@ def run_job(jid: str) -> None:
         pass
     else:
         cmd_base += ["-x", "--audio-format", fmt, "--audio-quality", "0"]
-    if fmt != "original":
+    if fmt != "original" and fmt != "wav":
         cmd_base += ["--embed-thumbnail", "--convert-thumbnails", "jpg"]
     cmd_base += js_runtime()
     if cfg.get("cookies") and Path(cfg["cookies"]).expanduser().is_file():
@@ -1142,6 +1142,7 @@ def run_job(jid: str) -> None:
     code = 1
     last_err = ""
     stop_all = False
+    downloaded_path = ""
     for ci, cand in enumerate(candidates[:3]):
         for attempt in range(3):
             if (snapshot(jid) or {}).get("status") == "cancelled":
@@ -1168,7 +1169,8 @@ def run_job(jid: str) -> None:
                         log.flush()
 
                         if line.startswith("FILEPATH:"):
-                            update(jid, file=line[len("FILEPATH:"):].strip())
+                            downloaded_path = line[len("FILEPATH:"):].strip()
+                            update(jid, file=downloaded_path)
                             continue
 
                         m = PROG_DL.match(line)
@@ -1199,7 +1201,12 @@ def run_job(jid: str) -> None:
                 procs.pop(jid, None)
                 try:
                     for tmp in outdir.glob(f".ytflac-{jid}*"):
-                        if tmp.suffix.lower() in (".webm", ".jpg", ".jpeg", ".png", ".part") or tmp.name.endswith(".norm.mp3"):
+                        if downloaded_path and str(tmp) == downloaded_path:
+                            continue
+                        exts = {".jpg", ".jpeg", ".png", ".part"}
+                        if fmt != "original":
+                            exts.add(".webm")
+                        if tmp.suffix.lower() in exts or tmp.name.endswith(".norm.mp3"):
                             try:
                                 tmp.unlink()
                             except OSError:
@@ -1279,7 +1286,7 @@ def run_job(jid: str) -> None:
 
     index_record(job, target, final)
     batch_update(job.get("batch_id", ""), True)
-    update(jid, status="done", percent=100.0, file=final,
+    update(jid, status="done", percent=100.0, file=final, error="",
            title=Path(final).stem, finished=time.time())
     _mirror_log(jid, log_path)
 
