@@ -421,6 +421,8 @@ async function loadSettings() {
     }
     const lt = $("loudnessTarget");
     if (lt) lt.value = String(res.data.loudness_target || -16);
+    const nm = $("normMode");
+    if (nm) nm.value = res.data.norm_mode || "constant";
   }
 }
 
@@ -439,6 +441,7 @@ async function saveSettings() {
       return sel.value;
     })(),
     loudness_target: parseInt($("loudnessTarget").value || "-16", 10) || -16,
+    norm_mode: $("normMode") ? $("normMode").value : "constant",
   };
   const res = await send({ type: "save-settings", payload });
   const msg = $("saveMsg");

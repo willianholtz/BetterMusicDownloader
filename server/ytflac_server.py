@@ -110,7 +110,7 @@ def load_config() -> dict:
     cfg = {"outdir": str(DEFAULT_OUTDIR), "cookies": "",
             "format": "mp3", "normalize": True, "min_bitrate": 0,
             "mp3gain": False, "name_format": "",
-            "loudness_target": -16}
+            "loudness_target": -16, "norm_mode": "constant"}
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict):
@@ -986,19 +986,24 @@ def best_audio_bitrate(url: str) -> float:
 
 
 def normalize_file(path: str) -> str:
-    """Normaliza o volume em modo LINEAR (ganho constante), preservando a
-    dinamica da musica. Evita o 'pumping' do loudnorm dinamico, que podia
-    abaixar o volume no meio da faixa.
+    """Normaliza o volume conforme `norm_mode` no config:
+      - "constant": ganho constante (linear loudnorm, 2 passadas) — preserva
+        dinamica, normaliza volume geral. (padrao)
+      - "dynaudnorm": normalizacao dinamica suave (dynaudnorm), nivela volume
+        ao longo da faixa sem pumping.
+      - "loudnorm": loudnorm dinamico (uma passada), pode soar 'puxado'.
+      - "off": nao normaliza.
 
-    Alvo de loudness (I) vem de `loudness_target` no config (padrao -16).
-    Faz duas passadas: mede I/TP/LRA/thresh na primeira e aplica um ganho
-    constante na segunda (linear=true). Se a medicao falhar, cai no loudnorm
-    simples (uma passada). Devolve o path.
+    Alvo de loudness (I) vem de `loudness_target` (padrao -16), usado nos
+    modos loudnorm. Devolve o path.
     """
     p = Path(path)
     if not p.is_file():
         return path
     cfg = load_config()
+    mode = (cfg.get("norm_mode") or "constant").lower()
+    if mode == "off":
+        return path
     try:
         target_i = int(cfg.get("loudness_target", -16))
     except (TypeError, ValueError):
@@ -1006,38 +1011,41 @@ def normalize_file(path: str) -> str:
     ffmpeg = find_binary("ffmpeg") or "ffmpeg"
     tmp = p.with_name(p.stem + ".norm" + p.suffix)
 
-    # --- passada 1: medicao ---
-    measured = {}
-    try:
-        out = subprocess.run(
-            [ffmpeg, "-y", "-hide_banner", "-loglevel", "info",
-             "-i", str(p),
-             "-af", f"loudnorm=I={target_i}:TP=-1.5:LRA=11:print_format=json",
-             "-f", "null", "-"],
-            capture_output=True, text=True, timeout=300,
-            encoding="utf-8", errors="replace")
-        txt = (out.stderr or "") + (out.stdout or "")
-        i = txt.rfind("{")
-        j = txt.rfind("}")
-        if i != -1 and j != -1 and j > i:
-            data = json.loads(txt[i:j + 1])
-            measured = {
-                "I": data.get("input_i"),
-                "TP": data.get("input_tp"),
-                "LRA": data.get("input_lra"),
-                "thresh": data.get("input_thresh"),
-                "offset": data.get("target_offset"),
-            }
-    except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+    if mode == "constant":
+        # duas passadas: mede e aplica ganho constante (linear=true)
         measured = {}
-
-    # --- passada 2: aplicacao (linear quando temos medicao) ---
-    if measured.get("I") is not None:
-        af = (f"loudnorm=I={target_i}:TP=-1.5:LRA=11"
-              f":measured_I={measured['I']}:measured_TP={measured['TP']}"
-              f":measured_LRA={measured['LRA']}:measured_thresh={measured['thresh']}"
-              f":offset={measured.get('offset', 0)}:linear=true")
-    else:
+        try:
+            out = subprocess.run(
+                [ffmpeg, "-y", "-hide_banner", "-loglevel", "info",
+                 "-i", str(p),
+                 "-af", f"loudnorm=I={target_i}:TP=-1.5:LRA=11:print_format=json",
+                 "-f", "null", "-"],
+                capture_output=True, text=True, timeout=300,
+                encoding="utf-8", errors="replace")
+            txt = (out.stderr or "") + (out.stdout or "")
+            i = txt.rfind("{")
+            j = txt.rfind("}")
+            if i != -1 and j != -1 and j > i:
+                data = json.loads(txt[i:j + 1])
+                measured = {
+                    "I": data.get("input_i"),
+                    "TP": data.get("input_tp"),
+                    "LRA": data.get("input_lra"),
+                    "thresh": data.get("input_thresh"),
+                    "offset": data.get("target_offset"),
+                }
+        except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+            measured = {}
+        if measured.get("I") is not None:
+            af = (f"loudnorm=I={target_i}:TP=-1.5:LRA=11"
+                  f":measured_I={measured['I']}:measured_TP={measured['TP']}"
+                  f":measured_LRA={measured['LRA']}:measured_thresh={measured['thresh']}"
+                  f":offset={measured.get('offset', 0)}:linear=true")
+        else:
+            af = f"loudnorm=I={target_i}:TP=-1.5:LRA=11"
+    elif mode == "dynaudnorm":
+        af = "dynaudnorm=f=500:g=15:p=0.95:m=10:r=0.9"
+    else:  # loudnorm (dinamico)
         af = f"loudnorm=I={target_i}:TP=-1.5:LRA=11"
 
     try:
@@ -1321,7 +1329,7 @@ def run_job(jid: str) -> None:
         _mirror_log(jid, log_path)
         return
 
-    if cfg.get("normalize", True) and fmt in ("mp3", "flac", "opus", "m4a", "ogg"):
+    if cfg.get("normalize", True) and cfg.get("norm_mode", "constant") != "off" and fmt in ("mp3", "flac", "opus", "m4a", "ogg"):
         update(jid, status="converting", percent=100.0)
         final = normalize_file(final)
 
@@ -1463,7 +1471,8 @@ class Handler(BaseHTTPRequestHandler):
                             "mp3gain_available": bool(find_binary("mp3gain")),
                             "min_bitrate": int(cfg.get("min_bitrate", 0) or 0),
                             "name_format": cfg.get("name_format", ""),
-                            "loudness_target": int(cfg.get("loudness_target", -16) or -16)})
+                            "loudness_target": int(cfg.get("loudness_target", -16) or -16),
+                            "norm_mode": cfg.get("norm_mode", "constant")})
             return
 
         if path == "/api/history":
@@ -1847,6 +1856,14 @@ class Handler(BaseHTTPRequestHandler):
                         cfg["loudness_target"] = v
                 except (TypeError, ValueError):
                     pass
+            if "norm_mode" in body:
+                m = str(body.get("norm_mode") or "").strip().lower()
+                if m in ("off", "constant", "dynaudnorm", "loudnorm"):
+                    cfg["norm_mode"] = m
+            if "norm_mode" in body:
+                m = str(body.get("norm_mode") or "").strip().lower()
+                if m in ("off", "constant", "dynaudnorm", "loudnorm"):
+                    cfg["norm_mode"] = m
             save_config(cfg)
             try:
                 Path(cfg["outdir"]).expanduser().mkdir(parents=True, exist_ok=True)
