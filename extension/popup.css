@@ -28,6 +28,17 @@ body { padding: 12px; }
 
 .hidden { display: none !important; }
 
+.info {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--fg-dim);
+  cursor: help;
+  font-size: 12px;
+  vertical-align: middle;
+  user-select: none;
+}
+.info:hover { color: var(--fg); }
+
 header {
   display: flex;
   align-items: center;

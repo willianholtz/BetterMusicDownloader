@@ -99,7 +99,7 @@
         <option value="custom">Personalizado…</option>
       </select>
       <input id="nameFormatCustom" type="text" placeholder="{n} - {title}" style="display:none;margin-top:4px;" />
-      <span class="muted">Placeholders: {n} {title} {artist} {album}. Ex.: {n} - {title}</span>
+      <span class="info" title="Placeholders: {n} {title} {artist} {album}. Ex.: {n} - {title}">ⓘ</span>
     </label>
     <label>
       <span>Alvo de volume (LUFS, mais alto = mais alto)</span>
@@ -114,7 +114,7 @@
         <option value="-8">-8 (muito alto)</option>
         <option value="-6">-6 (máximo, pode clipar)</option>
       </select>
-      <span class="muted">Quanto menos negativo, mais alto o volume final.</span>
+      <span class="info" title="Quanto menos negativo, mais alto o volume final.">ⓘ</span>
     </label>
     <label>
       <span>Modo de normalização</span>
@@ -124,12 +124,12 @@
         <option value="loudnorm">Dinâmico (pode soar puxado)</option>
         <option value="off">Desligado</option>
       </select>
-      <span class="muted">Constante = ganho único (recomendado). Suave = dynaudnorm.</span>
+      <span class="info" title="Constante = ganho único (recomendado). Suave = dynaudnorm.">ⓘ</span>
     </label>
     <label>
       <span data-i18n="labelMinBitrate">Qualidade mínima da fonte (kbps, 0 = aceitar tudo)</span>
       <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />
-      <span class="muted" data-i18n="minBitrateHint">YouTube grátis entrega no máx ~160 kbps.</span>
+      <span class="info" title="YouTube grátis entrega no máx ~160 kbps.">ⓘ</span>
     </label>
     <div class="row">
       <button id="save" class="btn small" data-i18n="save">Salvar</button>
