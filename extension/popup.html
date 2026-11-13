@@ -89,47 +89,55 @@
     </label>
     <label>
       <span>Formato do nome do arquivo (álbuns)</span>
-      <select id="nameFormat">
-        <option value="">Padrão (número - título - artista)</option>
-        <option value="{artist} - {title}">Artista - Título</option>
-        <option value="{n} - {title} - {artist}">Número - Título - Artista</option>
-        <option value="{n} - {title}">Número - Título</option>
-        <option value="{title} - {artist}">Título - Artista</option>
-        <option value="{title}">Só título</option>
-        <option value="custom">Personalizado…</option>
-      </select>
+      <div class="field-row">
+        <select id="nameFormat">
+          <option value="">Padrão (número - título - artista)</option>
+          <option value="{artist} - {title}">Artista - Título</option>
+          <option value="{n} - {title} - {artist}">Número - Título - Artista</option>
+          <option value="{n} - {title}">Número - Título</option>
+          <option value="{title} - {artist}">Título - Artista</option>
+          <option value="{title}">Só título</option>
+          <option value="custom">Personalizado…</option>
+        </select>
+        <span class="info" title="Placeholders: {n} {title} {artist} {album}. Ex.: {n} - {title}">ⓘ</span>
+      </div>
       <input id="nameFormatCustom" type="text" placeholder="{n} - {title}" style="display:none;margin-top:4px;" />
-      <span class="info" title="Placeholders: {n} {title} {artist} {album}. Ex.: {n} - {title}">ⓘ</span>
     </label>
     <label>
       <span>Alvo de volume (LUFS, mais alto = mais alto)</span>
-      <select id="loudnessTarget">
-        <option value="-23">-23 (bem baixo)</option>
-        <option value="-18">-18 (baixo)</option>
-        <option value="-16">-16 (padrão)</option>
-        <option value="-14">-14 (alto)</option>
-        <option value="-12">-12 (mais alto)</option>
-        <option value="-10">-10 (bem alto)</option>
-        <option value="-9">-9 (mais alto)</option>
-        <option value="-8">-8 (muito alto)</option>
-        <option value="-6">-6 (máximo, pode clipar)</option>
-      </select>
-      <span class="info" title="Quanto menos negativo, mais alto o volume final.">ⓘ</span>
+      <div class="field-row">
+        <select id="loudnessTarget">
+          <option value="-23">-23 (bem baixo)</option>
+          <option value="-18">-18 (baixo)</option>
+          <option value="-16">-16 (padrão)</option>
+          <option value="-14">-14 (alto)</option>
+          <option value="-12">-12 (mais alto)</option>
+          <option value="-10">-10 (bem alto)</option>
+          <option value="-9">-9 (mais alto)</option>
+          <option value="-8">-8 (muito alto)</option>
+          <option value="-6">-6 (máximo, pode clipar)</option>
+        </select>
+        <span class="info" title="Quanto menos negativo, mais alto o volume final.">ⓘ</span>
+      </div>
     </label>
     <label>
       <span>Modo de normalização</span>
-      <select id="normMode">
-        <option value="constant">Constante (mantém dinâmica, normaliza volume geral)</option>
-        <option value="dynaudnorm">Suave (nivela volume ao longo da música)</option>
-        <option value="loudnorm">Dinâmico (pode soar puxado)</option>
-        <option value="off">Desligado</option>
-      </select>
-      <span class="info" title="Constante = ganho único (recomendado). Suave = dynaudnorm.">ⓘ</span>
+      <div class="field-row">
+        <select id="normMode">
+          <option value="constant">Constante (mantém dinâmica, normaliza volume geral)</option>
+          <option value="dynaudnorm">Suave (nivela volume ao longo da música)</option>
+          <option value="loudnorm">Dinâmico (pode soar puxado)</option>
+          <option value="off">Desligado</option>
+        </select>
+        <span class="info" title="Constante = ganho único (recomendado). Suave = dynaudnorm.">ⓘ</span>
+      </div>
     </label>
     <label>
       <span data-i18n="labelMinBitrate">Qualidade mínima da fonte (kbps, 0 = aceitar tudo)</span>
-      <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />
-      <span class="info" title="YouTube grátis entrega no máx ~160 kbps.">ⓘ</span>
+      <div class="field-row">
+        <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />
+        <span class="info" title="YouTube grátis entrega no máx ~160 kbps.">ⓘ</span>
+      </div>
     </label>
     <div class="row">
       <button id="save" class="btn small" data-i18n="save">Salvar</button>

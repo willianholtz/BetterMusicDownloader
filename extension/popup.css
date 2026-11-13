@@ -29,15 +29,29 @@ body { padding: 12px; }
 .hidden { display: none !important; }
 
 .info {
-  display: inline-block;
-  margin-left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--fg-dim);
   cursor: help;
-  font-size: 12px;
-  vertical-align: middle;
+  font-size: 13px;
   user-select: none;
+  flex: 0 0 auto;
 }
 .info:hover { color: var(--fg); }
+
+.field-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+.field-row > select,
+.field-row > input {
+  flex: 1 1 0;
+  width: auto;
+  margin-top: 0;
+}
 
 header {
   display: flex;
