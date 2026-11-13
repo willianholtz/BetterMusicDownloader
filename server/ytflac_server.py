@@ -985,26 +985,69 @@ def best_audio_bitrate(url: str) -> float:
 
 
 def normalize_file(path: str) -> str:
-    """Aplica loudnorm (EBU R128) no arquivo, substituindo-o. Devolve o path."""
+    """Normaliza o volume em modo LINEAR (ganho constante), preservando a
+    dinamica da musica. Evita o 'pumping' do loudnorm dinamico, que podia
+    abaixar o volume no meio da faixa.
+
+    Faz duas passadas: mede I/TP/LRA/thresh na primeira e aplica um ganho
+    constante na segunda (linear=true). Se a medicao falhar, cai no loudnorm
+    simples (uma passada). Devolve o path.
+    """
     p = Path(path)
     if not p.is_file():
         return path
+    ffmpeg = find_binary("ffmpeg") or "ffmpeg"
     tmp = p.with_name(p.stem + ".norm" + p.suffix)
+
+    # --- passada 1: medicao ---
+    measured = {}
+    try:
+        out = subprocess.run(
+            [ffmpeg, "-y", "-hide_banner", "-loglevel", "info",
+             "-i", str(p),
+             "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+             "-f", "null", "-"],
+            capture_output=True, text=True, timeout=300,
+            encoding="utf-8", errors="replace")
+        txt = (out.stderr or "") + (out.stdout or "")
+        # o JSON vem no final do stderr
+        i = txt.rfind("{")
+        j = txt.rfind("}")
+        if i != -1 and j != -1 and j > i:
+            data = json.loads(txt[i:j + 1])
+            measured = {
+                "I": data.get("input_i"),
+                "TP": data.get("input_tp"),
+                "LRA": data.get("input_lra"),
+                "thresh": data.get("input_thresh"),
+                "offset": data.get("target_offset"),
+            }
+    except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+        measured = {}
+
+    # --- passada 2: aplicacao (linear quando temos medicao) ---
+    if measured.get("I") is not None:
+        af = ("loudnorm=I=-16:TP=-1.5:LRA=11"
+              f":measured_I={measured['I']}:measured_TP={measured['TP']}"
+              f":measured_LRA={measured['LRA']}:measured_thresh={measured['thresh']}"
+              f":offset={measured.get('offset', 0)}:linear=true")
+    else:
+        af = "loudnorm=I=-16:TP=-1.5:LRA=11"
+
     try:
         subprocess.run([
-            find_binary("ffmpeg") or "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
             "-i", str(p),
-            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+            "-af", af,
             "-map", "0:a", "-map", "0:v?",
             str(tmp),
-        ], check=True)
+        ], check=True, timeout=600)
     except (OSError, subprocess.SubprocessError):
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
         return path
-    # preserva metadados/capa copiando via ffmpeg? ffmpeg ja carrega no re-encode
     os.replace(tmp, p)
     return str(p)
 
