@@ -72,7 +72,7 @@
     "message": "saved ✓"
   },
   "footer": {
-    "message": "BetterMusicDownload: searches music from Qobuz and Spotify for download."
+    "message": "BetterMusicDownload: searches albums/playlists from <a href=\"https://www.qobuz.com\" target=\"_blank\" rel=\"noopener\">Qobuz</a> and <a href=\"https://open.spotify.com\" target=\"_blank\" rel=\"noopener\">Spotify</a> for high-quality download."
   },
   "notifyStarted": {
     "message": "Download started"
