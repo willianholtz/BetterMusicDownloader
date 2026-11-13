@@ -227,6 +227,18 @@ function renderJobs(jobs) {
       e.className = "muted";
       e.textContent = job.error.slice(0, 90);
       actions.append(e);
+      const retry = document.createElement("button");
+      retry.className = "link";
+      retry.textContent = "↻ tentar de novo";
+      retry.title = "Reenviar este download";
+      retry.onclick = async () => {
+        retry.disabled = true;
+        retry.textContent = "…";
+        const res = await send({ type: "download", url: job.url });
+        if (res && res.ok) poll();
+        else { retry.disabled = false; retry.textContent = "↻ tentar de novo"; }
+      };
+      actions.append(retry);
     }
     if (["downloading", "queued", "converting", "searching", "tagging"].includes(job.status)) {
       const c = document.createElement("button");
