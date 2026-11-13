@@ -72,7 +72,7 @@
     "message": "guardado ✓"
   },
   "footer": {
-    "message": "BetterMusicDownload: busca álbumes/playlists de <a href=\"https://www.qobuz.com\" target=\"_blank\" rel=\"noopener\">Qobuz</a> y <a href=\"https://open.spotify.com\" target=\"_blank\" rel=\"noopener\">Spotify</a> para descarga de alta calidad."
+    "message": "BetterMusicDownload: busca álbumes/playlists de <a href=\"https://www.qobuz.com/us-en/shop\" target=\"_blank\" rel=\"noopener\">Qobuz</a> y <a href=\"https://open.spotify.com\" target=\"_blank\" rel=\"noopener\">Spotify</a> para descarga de alta calidad."
   },
   "notifyStarted": {
     "message": "Descarga iniciada"
