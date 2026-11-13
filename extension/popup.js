@@ -405,6 +405,20 @@ async function loadSettings() {
     const hint = $("mp3gainHint");
     if (hint) hint.textContent = chrome.i18n.getMessage(avail ? "mp3gainHint" : "mp3gainMissing");
     $("minBitrate").value = res.data.min_bitrate || 0;
+    const nf = (res.data.name_format || "").trim();
+    const sel = $("nameFormat");
+    const custom = $("nameFormatCustom");
+    const presets = Array.from(sel.options).map((o) => o.value).filter((v) => v && v !== "custom");
+    if (presets.includes(nf)) {
+      sel.value = nf;
+      if (custom) custom.style.display = "none";
+    } else if (nf) {
+      sel.value = "custom";
+      if (custom) { custom.style.display = ""; custom.value = nf; }
+    } else {
+      sel.value = "";
+      if (custom) custom.style.display = "none";
+    }
   }
 }
 
@@ -416,6 +430,12 @@ async function saveSettings() {
     normalize: $("normalize").checked,
     mp3gain: $("mp3gain").checked,
     min_bitrate: parseInt($("minBitrate").value || "0", 10) || 0,
+    name_format: (() => {
+      const sel = $("nameFormat");
+      if (!sel) return "";
+      if (sel.value === "custom") return ($("nameFormatCustom").value || "").trim();
+      return sel.value;
+    })(),
   };
   const res = await send({ type: "save-settings", payload });
   const msg = $("saveMsg");
@@ -451,6 +471,11 @@ async function boot() {
 $("download").addEventListener("click", startDownload);
 $("save").addEventListener("click", saveSettings);
 $("format").addEventListener("change", updateDownloadLabel);
+$("nameFormat").addEventListener("change", () => {
+  const sel = $("nameFormat");
+  const custom = $("nameFormatCustom");
+  if (custom) custom.style.display = (sel.value === "custom") ? "" : "none";
+});
 $("openFolder").addEventListener("click", () => send({ type: "open-folder" }));
 $("clearHistory").addEventListener("click", async () => {
   const res = await send({ type: "clear-history" });

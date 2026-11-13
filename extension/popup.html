@@ -88,6 +88,20 @@
       </span>
     </label>
     <label>
+      <span>Formato do nome do arquivo (álbuns)</span>
+      <select id="nameFormat">
+        <option value="">Padrão (número - título - artista)</option>
+        <option value="{artist} - {title}">Artista - Título</option>
+        <option value="{n} - {title} - {artist}">Número - Título - Artista</option>
+        <option value="{n} - {title}">Número - Título</option>
+        <option value="{title} - {artist}">Título - Artista</option>
+        <option value="{title}">Só título</option>
+        <option value="custom">Personalizado…</option>
+      </select>
+      <input id="nameFormatCustom" type="text" placeholder="{n} - {title}" style="display:none;margin-top:4px;" />
+      <span class="muted">Placeholders: {n} {title} {artist} {album}. Ex.: {n} - {title}</span>
+    </label>
+    <label>
       <span data-i18n="labelMinBitrate">Qualidade mínima da fonte (kbps, 0 = aceitar tudo)</span>
       <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />
       <span class="muted" data-i18n="minBitrateHint">YouTube grátis entrega no máx ~160 kbps.</span>

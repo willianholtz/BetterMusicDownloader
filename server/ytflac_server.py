@@ -109,7 +109,7 @@ def venv_python() -> str | None:
 def load_config() -> dict:
     cfg = {"outdir": str(DEFAULT_OUTDIR), "cookies": "",
             "format": "mp3", "normalize": True, "min_bitrate": 0,
-            "mp3gain": False}
+            "mp3gain": False, "name_format": ""}
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict):
@@ -831,10 +831,30 @@ def _audio_ext(fmt: str | None = None) -> str:
         "original": None,
     }.get(fmt, ".mp3")
 
-def final_name(meta: dict, fmt: str | None = None) -> str:
+def _render_name_format(tpl: str, meta: dict, fmt: str | None = None) -> str:
     artists = " / ".join(meta.get("artists") or []) or meta.get("albumartist", "")
     title = safe_name(meta.get("title", "faixa"))
+    album = safe_name(meta.get("album", "") or "")
+    tn = meta.get("track_number")
+    n = f"{int(tn):02d}" if tn else ""
+    out = tpl
+    out = out.replace("{n}", n).replace("{title}", title).replace("{artist}", safe_name(artists)).replace("{album}", album)
+    # limpa separadores orfaos (ex.: " - " quando {n} vazio)
+    out = re.sub(r"\s*-\s*-\s*", " - ", out)
+    out = re.sub(r"^\s*-\s*", "", out).strip()
+    if not out.strip(" -"):
+        out = f"{safe_name(artists)} - {title}"
+    return out + (_audio_ext(fmt) or "")
+
+
+def final_name(meta: dict, fmt: str | None = None) -> str:
     ext = _audio_ext(fmt)
+    artists = " / ".join(meta.get("artists") or []) or meta.get("albumartist", "")
+    title = safe_name(meta.get("title", "faixa"))
+    # formato customizado (config) tem prioridade quando definido
+    cfg_fmt = (load_config().get("name_format") or "").strip()
+    if cfg_fmt:
+        return _render_name_format(cfg_fmt, meta, fmt)
     if meta.get("album_track"):
         tn = meta.get("track_number")
         prefix = f"{int(tn):02d} - " if tn else ""
@@ -1385,7 +1405,8 @@ class Handler(BaseHTTPRequestHandler):
                             "normalize": bool(cfg.get("normalize", True)),
                             "mp3gain": bool(cfg.get("mp3gain", False)),
                             "mp3gain_available": bool(find_binary("mp3gain")),
-                            "min_bitrate": int(cfg.get("min_bitrate", 0) or 0)})
+                            "min_bitrate": int(cfg.get("min_bitrate", 0) or 0),
+                            "name_format": cfg.get("name_format", "")})
             return
 
         if path == "/api/history":
@@ -1760,6 +1781,8 @@ class Handler(BaseHTTPRequestHandler):
                     cfg["min_bitrate"] = max(0, int(body.get("min_bitrate") or 0))
                 except (TypeError, ValueError):
                     pass
+            if "name_format" in body:
+                cfg["name_format"] = str(body.get("name_format") or "").strip()
             save_config(cfg)
             try:
                 Path(cfg["outdir"]).expanduser().mkdir(parents=True, exist_ok=True)
