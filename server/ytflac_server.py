@@ -1446,6 +1446,8 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     made = []
                     group = safe_name(coll["name"]) if len(coll["tracks"]) > 1 else ""
+                    is_album = (coll.get("kind") == "album")
+                    force_download = bool(body.get("force", False)) or is_album
                     _cfg = load_config()
                     _outdir = Path(_cfg["outdir"]).expanduser()
                     _dest = _outdir / group if group else _outdir
@@ -1459,14 +1461,14 @@ class Handler(BaseHTTPRequestHandler):
                                         want_duration=meta.get("duration") or 0,
                                         group=group,
                                         title=f"{' / '.join(meta['artists'])} - {meta['title']}")
-                        if already_done(probe, _dest, _outdir):
+                        if (not force_download) and already_done(probe, _dest, _outdir):
                             skipped += 1
                         jobs.pop(probe["id"], None)  # remove o probe (nao baixa)
                         try:
                             jobs_order.remove(probe["id"])
                         except ValueError:
                             pass
-                        job = new_job(meta["source"], source="spotify", meta=meta, force=body.get("force", False),
+                        job = new_job(meta["source"], source="spotify", meta=meta, force=force_download,
                                       query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
                                       want_duration=meta.get("duration") or 0,
                                       group=group,
@@ -1507,6 +1509,8 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     made = []
                     group = safe_name(coll["name"]) if len(coll["tracks"]) > 1 else ""
+                    is_album = (coll.get("kind") == "album")
+                    force_download = bool(body.get("force", False)) or is_album
                     _cfg = load_config()
                     _outdir = Path(_cfg["outdir"]).expanduser()
                     _dest = _outdir / group if group else _outdir
@@ -1519,14 +1523,14 @@ class Handler(BaseHTTPRequestHandler):
                                         want_duration=meta.get("duration") or 0,
                                         group=group,
                                         title=f"{' / '.join(meta['artists'])} - {meta['title']}")
-                        if already_done(probe, _dest, _outdir):
+                        if (not force_download) and already_done(probe, _dest, _outdir):
                             skipped += 1
                         jobs.pop(probe["id"], None)
                         try:
                             jobs_order.remove(probe["id"])
                         except ValueError:
                             pass
-                        job = new_job(meta["source"], source="qobuz", meta=meta, force=body.get("force", False),
+                        job = new_job(meta["source"], source="qobuz", meta=meta, force=force_download,
                                       query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
                                       want_duration=meta.get("duration") or 0,
                                       group=group,

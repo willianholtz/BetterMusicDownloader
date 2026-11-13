@@ -43,6 +43,9 @@ form `https://play.qobuz.com/track/<id>` and album links
 `https://www.qobuz.com/<locale>/album/<slug>/<id>`.
 
 Albums are downloaded track by track into a subfolder named after the album.
+Albums are always (re)downloaded in full — existing files are overwritten — so a
+re-run of an album fetches everything again. Playlists keep the "skip already
+downloaded" behaviour.
 
 ## Quality
 
