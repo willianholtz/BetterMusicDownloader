@@ -72,7 +72,7 @@
     "message": "salvo ✓"
   },
   "footer": {
-    "message": "MP3 VBR ~245–285 kbps (fonte do YouTube é Opus ~160 kbps). Do Spotify vêm só os metadados."
+    "message": "BetterMusicDownload: busca músicas do Qobuz e Spotify para download."
   },
   "notifyStarted": {
     "message": "Download iniciado"
