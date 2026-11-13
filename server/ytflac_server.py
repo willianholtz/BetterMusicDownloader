@@ -487,6 +487,7 @@ def spotify_collection_meta(kind: str, sid: str) -> dict:
             "disc_number": 1,
             "spotify_id": tid,
             "source": f"https://open.spotify.com/track/{tid}",
+            "album_track": kind == "album",
         })
     for t in tracks:
         t["track_total"] = len(tracks)
@@ -565,6 +566,7 @@ def qobuz_collection_meta(kind: str, qid: str) -> dict:
             "disc_number": it.get("media_number") or 1,
             "spotify_id": str(it.get("id")),
             "source": f"https://play.qobuz.com/track/{it.get('id')}",
+            "album_track": True,
         })
     for t in tracks:
         t["track_total"] = len(tracks)
@@ -831,7 +833,13 @@ def _audio_ext(fmt: str | None = None) -> str:
 
 def final_name(meta: dict, fmt: str | None = None) -> str:
     artists = " / ".join(meta.get("artists") or []) or meta.get("albumartist", "")
-    return f"{safe_name(artists)} - {safe_name(meta.get('title', 'faixa'))}{_audio_ext(fmt)}"
+    title = safe_name(meta.get("title", "faixa"))
+    ext = _audio_ext(fmt)
+    if meta.get("album_track"):
+        tn = meta.get("track_number")
+        prefix = f"{int(tn):02d} - " if tn else ""
+        return f"{prefix}{title} - {safe_name(artists)}{ext}"
+    return f"{safe_name(artists)} - {title}{ext}"
 
 
 def video_id(url: str) -> str:
