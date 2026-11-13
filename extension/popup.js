@@ -423,6 +423,14 @@ async function loadSettings() {
     if (lt) lt.value = String(res.data.loudness_target || -16);
     const nm = $("normMode");
     if (nm) nm.value = res.data.norm_mode || "constant";
+    const normCb = $("normalize");
+    const syncNormUi = () => {
+      const on = !!(normCb && normCb.checked);
+      if (nm) nm.disabled = !on;
+      const lt = $("loudnessTarget");
+      if (lt) lt.disabled = !on;
+    };
+    if (normCb) { normCb.addEventListener("change", syncNormUi); syncNormUi(); }
   }
 }
 
