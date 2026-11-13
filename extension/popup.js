@@ -11,6 +11,22 @@ function isQobuz(url) {
   return /^https?:\/\/((www\.)?qobuz\.com|play\.qobuz\.com)\//i.test(url);
 }
 
+const FORMAT_LABELS = {
+  mp3: "MP3", m4a: "M4A", opus: "Opus", vorbis: "OGG",
+  flac: "FLAC", alac: "ALAC", wav: "WAV", original: "Original",
+};
+function formatLabel(fmt) {
+  return FORMAT_LABELS[fmt] || String(fmt || "mp3").toUpperCase();
+}
+function updateDownloadLabel() {
+  const btn = $("download");
+  if (!btn) return;
+  const fmt = formatLabel($("format").value);
+  if (isSpotify(currentUrl)) btn.textContent = `Baixar do Spotify em ${fmt}`;
+  else if (isQobuz(currentUrl)) btn.textContent = `Baixar do Qobuz em ${fmt}`;
+  else btn.textContent = `Baixar áudio em ${fmt}`;
+}
+
 function cleanTitle(title) {
   return String(title || "")
     .replace(/ - YouTube( Music)?$/, "")
@@ -108,7 +124,7 @@ async function loadCurrentTab() {
     const raw = forced ? (new URL(currentUrl).searchParams.get("v") || currentUrl) : (resolvedName || tab.title || sourceLabel);
     $("videoTitle").textContent = cleanTitle(raw);
     $("videoUrl").textContent = currentUrl;
-    $("download").textContent = spotify ? "Baixar do Spotify em MP3" : (qobuz ? "Baixar do Qobuz em MP3" : "Baixar áudio em MP3");
+    updateDownloadLabel();
     // remove previous note
     const oldNote = document.getElementById("statusNote");
     if (oldNote) oldNote.remove();
@@ -352,10 +368,10 @@ async function startDownload() {
   }
   if (jobs.length > 1) {
     btn.textContent = `${jobs.length} faixas na fila`;
-    setTimeout(() => (btn.textContent = isSpotify(currentUrl) ? "Baixar do Spotify em MP3" : (isQobuz(currentUrl) ? "Baixar do Qobuz em MP3" : "Baixar áudio em MP3")), 2500);
+    setTimeout(() => updateDownloadLabel(), 2500);
   } else {
     btn.textContent = "Baixar de novo";
-    setTimeout(() => (btn.textContent = isSpotify(currentUrl) ? "Baixar do Spotify em MP3" : (isQobuz(currentUrl) ? "Baixar do Qobuz em MP3" : "Baixar áudio em MP3")), 2500);
+    setTimeout(() => updateDownloadLabel(), 2500);
   }
   btn.disabled = false;
   poll();
@@ -413,6 +429,7 @@ async function boot() {
       }
     });
     await loadSettings();
+    updateDownloadLabel();
     await poll();
     await loadHistory();
     pollTimer = setInterval(poll, 900);
@@ -421,6 +438,7 @@ async function boot() {
 
 $("download").addEventListener("click", startDownload);
 $("save").addEventListener("click", saveSettings);
+$("format").addEventListener("change", updateDownloadLabel);
 $("openFolder").addEventListener("click", () => send({ type: "open-folder" }));
 $("clearHistory").addEventListener("click", async () => {
   const res = await send({ type: "clear-history" });
