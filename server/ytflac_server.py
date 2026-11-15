@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.4"
+VERSION = "1.4.5"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -1341,7 +1341,7 @@ def _youtube_tag_meta(job: dict) -> dict:
         "isrc": "",
         "track_number": tn or None,
         "disc_number": None,
-        "cover": "",
+        "cover": vm.get("cover") or "",
         "spotify_id": "",
         "source": url or "",
     }
