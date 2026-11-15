@@ -242,6 +242,23 @@ function renderBatches(batches) {
     bar.append(fill);
     li.append(bar);
 
+    const actions = document.createElement("div");
+    actions.className = "job-actions";
+    if (b.status === "running") {
+      const stop = document.createElement("button");
+      stop.className = "link";
+      stop.textContent = "⏹ parar";
+      stop.title = "Parar este download";
+      stop.onclick = async () => {
+        for (const id of b.job_ids || []) {
+          try { await send({ type: "cancel", id }); } catch (e) {}
+        }
+        poll();
+      };
+      actions.append(stop);
+    }
+    if (actions.childElementCount) li.append(actions);
+
     ul.append(li);
   }
 }
@@ -697,7 +714,7 @@ $("clearHistory").addEventListener("click", async () => {
 });
 $("clearList").addEventListener("click", async () => {
   const res = await send({ type: "clear-list" });
-  if (res.ok) { lastJobs = []; chrome.storage.local.remove(["lastJobs"]); renderJobs([]); const je = $("jobsEmpty"); if (je) je.classList.remove("hidden"); updateStatusLine([], lastHistory); }
+  if (res.ok) { poll(); }
 });
 $("stopAll").addEventListener("click", async () => {
   const res = await send({ type: "stop-all" });

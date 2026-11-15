@@ -162,7 +162,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           });
           break;
         case "clear-list":
-          sendResponse({ ok: true, data: await api("/api/jobs/clear", { method: "POST" }) });
+          sendResponse({ ok: true, data: await api("/api/jobs/clear", { method: "POST", body: JSON.stringify(msg.body || { keep_active: true }) }) });
           break;
         case "play":
           sendResponse({ ok: true, data: await api("/api/play", { method: "POST", body: JSON.stringify({ id: msg.id, file: msg.file || "" }) }) });

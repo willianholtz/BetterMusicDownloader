@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -650,6 +650,16 @@ def qobuz_resolve_album_id(qid: str, url: str = "") -> str:
     return qid
 
 
+def qobuz_track_search(query: str, limit: int = 5) -> dict | None:
+    """Busca faixa no Qobuz por artista/titulo; devolve o primeiro resultado."""
+    try:
+        data = _qobuz_get("track/search", {"query": query, "limit": limit})
+        items = ((data.get("tracks") or {}).get("items")) or []
+        return items[0] if items else None
+    except Exception:
+        return None
+
+
 def qobuz_collection_meta(kind: str, qid: str) -> dict:
     """Album do Qobuz: nome + lista de faixas."""
     data = _qobuz_get("album/get", {"album_id": qid})
@@ -1169,19 +1179,25 @@ def best_audio_bitrate(url: str) -> float:
 
 
 def _clean_final_name(path: str) -> str:
-    """Remove duplicacao 'Artista - Artista - Titulo' gerada quando o titulo do
-    yt-dlp ja vem com o artista prefixado (ex.: music.youtube.com/topic videos)."""
+    """Normaliza o nome final do arquivo: remove duplicacao 'Artista - Artista -
+    Titulo', caracteres invalidos de filesystem, sujeiras de metadados (simbolos
+    como '⧸', colons fullwidth) e espacos extras (ex.: 'Leben Ohne Ende ⧸ Seeds ...')."""
     try:
         p = Path(path)
         stem = p.stem
         parts = [x.strip() for x in stem.split(" - ") if x and x.strip()]
         if len(parts) >= 3 and parts[0].lower() == parts[1].lower():
             parts.pop(1)
-            new_stem = " - ".join(parts)
-            if new_stem and new_stem != stem:
-                new = p.with_name(new_stem + p.suffix)
-                p.replace(new)
-                return str(new)
+            stem = " - ".join(parts)
+        stem = re.sub(r"[\x00-\x1f\x7f]", "", stem)
+        stem = re.sub(r"[\\/:*?\"<>|]+", " ", stem)
+        stem = re.sub(r"\[\]", "", stem)
+        stem = stem.replace("⧸", "-").replace("：", ":")
+        stem = re.sub(r"\s+", " ", stem).strip()
+        new = p.with_name(stem + p.suffix) if stem else p
+        if stem and new != p:
+            p.replace(new)
+            return str(new)
     except OSError:
         pass
     return str(p)
@@ -1287,6 +1303,48 @@ def apply_mp3gain(path: str) -> str:
     except (OSError, subprocess.SubprocessError):
         return path
     return str(p)
+
+
+def _youtube_tag_meta(job: dict) -> dict:
+    """Meta de tag para jobs do YouTube/Youtube Music (sem vinculo Spotify):
+    titulo/artista vindos do yt-dlp + numero de faixa (prefixo da playlist).
+    Enriquece com Qobuz (album/track/isrc) quando a busca acha."""
+    url = job.get("url") or ""
+    vm = youtube_video_meta(url) if url else {}
+    title = (vm.get("title") or job.get("title") or "").strip()
+    title = re.sub(r"\[\]", "", title)
+    title = title.replace("⧸", "-")
+    title = re.sub(r"\s+", " ", title).strip()
+    artists = [a for a in (vm.get("artists") or []) if a] or []
+    album = job.get("group") or ""
+    tn = 0
+    m = re.match(r"^(\d{1,3})\s*[-–—]?\s*", job.get("name_prefix") or "")
+    if m:
+        tn = int(m.group(1))
+    meta = {
+        "source": "youtube",
+        "title": title,
+        "artists": artists,
+        "albumartist": artists[0] if artists else "",
+        "album": album,
+        "date": "",
+        "isrc": "",
+        "track_number": tn or None,
+        "disc_number": None,
+        "cover": "",
+        "spotify_id": "",
+        "source": url or "",
+    }
+    if artists and title:
+        try:
+            found = qobuz_track_search(f"{artists[0]} {title}")
+            if found:
+                for k in ("title", "artists", "album", "albumartist", "date", "isrc", "track_number"):
+                    if found.get(k) is not None:
+                        meta[k] = found[k]
+        except Exception:
+            pass
+    return meta
 
 
 def run_job(jid: str) -> None:
@@ -1552,6 +1610,11 @@ def _run_job_impl(jid: str) -> None:
     if meta:
         update(jid, status="tagging", percent=100.0)
         final = tag_spotify_file(final, meta, dest, fmt)
+    elif (job.get("source") or "youtube") == "youtube":
+        # jobs do YouTube/Youtube Music: monta meta (titulo/artista/track) e grava
+        # tags — antes nao marcava nada, por isso faltava numero da faixa
+        update(jid, status="tagging", percent=100.0)
+        final = tag_spotify_file(final, _youtube_tag_meta(job), dest, fmt, rename=False)
 
     index_record(job, target, final)
     batch_update(job.get("batch_id", ""), True)
@@ -1568,11 +1631,13 @@ def _mirror_log(jid: str, log_path: Path) -> None:
         pass
 
 
-def tag_spotify_file(path: str, meta: dict, dest: Path, fmt: str | None = None) -> str:
+def tag_spotify_file(path: str, meta: dict, dest: Path, fmt: str | None = None, rename: bool = True) -> str:
     """Grava os metadados/capa do Spotify no FLAC e renomeia para a pasta final."""
     py = venv_python()
     src = Path(path)
-    if fmt == "original":
+    if not rename:
+        out = src
+    elif fmt == "original":
         ext = src.suffix or ".mp3"
         out = dest / (final_name(meta, "mp3")[:-4] + ext)
     else:
@@ -2083,9 +2148,24 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/jobs/clear":
+            body = self._read_json()
+            keep_active = bool(body.get("keep_active") or body.get("only_finished"))
             with lock:
-                jobs.clear()
-                jobs_order.clear()
+                if keep_active:
+                    # limpa apenas os jobs finalizados (pronto/erro/cancelado) e
+                    # mantem os que estao rodando — download em andamento nao some da lista
+                    for jid in list(jobs_order):
+                        j = jobs.get(jid)
+                        if j and j.get("status") in ("queued", "downloading", "converting", "searching", "tagging"):
+                            continue
+                        jobs.pop(jid, None)
+                        try:
+                            jobs_order.remove(jid)
+                        except ValueError:
+                            pass
+                else:
+                    jobs.clear()
+                    jobs_order.clear()
             self._json(200, {"ok": True})
             return
 
