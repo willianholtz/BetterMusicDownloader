@@ -21,8 +21,14 @@ function formatLabel(fmt) {
 function updateDownloadLabel() {
   const btn = $("download");
   if (!btn) return;
-  const fmt = formatLabel($("format").value);
-  if (isSpotify(currentUrl)) btn.textContent = `Baixar do Spotify em ${fmt}`;
+  const fmtEl = $("format");
+  const fmt = formatLabel(fmtEl ? fmtEl.value : "mp3");
+  const isYtPlaylist = /youtube\.com\/.*[?&]list=/.test(currentUrl) || /youtube\.com\/playlist/i.test(currentUrl);
+  if (isYtPlaylist) btn.textContent = `Baixar playlist em ${fmt}`;
+  else if (resolvedKind === "album") btn.textContent = `Baixar álbum em ${fmt}`;
+  else if (resolvedKind === "playlist") btn.textContent = `Baixar playlist em ${fmt}`;
+  else if (resolvedKind === "track") btn.textContent = `Baixar faixa em ${fmt}`;
+  else if (isSpotify(currentUrl)) btn.textContent = `Baixar do Spotify em ${fmt}`;
   else if (isQobuz(currentUrl)) btn.textContent = `Baixar do Qobuz em ${fmt}`;
   else btn.textContent = `Baixar áudio em ${fmt}`;
 }
@@ -89,15 +95,15 @@ async function refreshHealth() {
   const res = await send({ type: "health" });
   serviceOnline = !!(res.ok && res.data && res.data.ok);
   const pill = $("service");
+  const off = $("offline");
+  const dl = $("download");
   if (serviceOnline) {
-    pill.textContent = "serviço online";
-    pill.className = "pill pill-on";
-    $("offline").classList.add("hidden");
+    if (pill) { pill.textContent = "serviço online"; pill.className = "pill pill-on"; }
+    if (off) off.classList.add("hidden");
   } else {
-    pill.textContent = "serviço offline";
-    pill.className = "pill pill-off";
-    $("offline").classList.remove("hidden");
-    $("download").disabled = true;
+    if (pill) { pill.textContent = "serviço offline"; pill.className = "pill pill-off"; }
+    if (off) off.classList.remove("hidden");
+    if (dl) dl.disabled = true;
   }
   return serviceOnline;
 }
@@ -109,8 +115,10 @@ async function loadCurrentTab() {
   currentUrl = forced || (tab && tab.url) || "";
   const isMedia = MEDIA_RE.test(currentUrl);
 
-  $("current").classList.toggle("hidden", !isMedia);
-  $("notVideo").classList.toggle("hidden", isMedia);
+  const cur = $("current");
+  const nv = $("notVideo");
+  if (cur) cur.classList.toggle("hidden", !isMedia);
+  if (nv) nv.classList.toggle("hidden", isMedia);
 
   if (isMedia) {
     const spotify = isSpotify(currentUrl);
@@ -121,12 +129,15 @@ async function loadCurrentTab() {
       const r = await send({ type: "resolve", url: currentUrl });
       if (r.ok && r.data) {
         resolvedName = r.data.name || (r.data.tracks && r.data.tracks[0] && r.data.tracks[0].artists && r.data.tracks[0].artists.join(" / ")) || "";
+        resolvedKind = r.data.kind || null;
       }
     }
     const sourceLabel = spotify ? "Spotify" : (qobuz ? "Qobuz" : "Vídeo do YouTube");
     const raw = forced ? (new URL(currentUrl).searchParams.get("v") || currentUrl) : (resolvedName || tab.title || sourceLabel);
-    $("videoTitle").textContent = cleanTitle(raw);
-    $("videoUrl").textContent = currentUrl;
+    const vt = $("videoTitle");
+    if (vt) vt.textContent = cleanTitle(raw);
+    const vu = $("videoUrl");
+    if (vu) vu.textContent = currentUrl;
     updateDownloadLabel();
     // remove previous note
     const oldNote = document.getElementById("statusNote");
@@ -148,7 +159,8 @@ async function loadCurrentTab() {
           note.style.fontSize = "11px";
           note.style.marginTop = "4px";
           note.textContent = "Playlist personalizada: não dá para verificar o status, mas o download funciona normalmente.";
-          $("videoUrl").after(note);
+          const vu2 = $("videoUrl");
+          if (vu2) vu2.after(note);
         } else if (res.data && Array.isArray(res.data.tracks) && res.data.tracks.length) {
           const total = res.data.tracks.length;
           const existing = res.data.existing != null ? res.data.existing : res.data.tracks.filter((t) => t.exists).length;
@@ -181,11 +193,66 @@ function jobLabel(job) {
   return "na fila";
 }
 
+// Espelho de job_display_percent() do servidor: a barra flui 0→100 por fase,
+// em vez de pular pra 100% no download e travar na conversão.
+function jobDisplayPercent(job) {
+  const st = job.status;
+  if (st === "done") return 100;
+  if (st === "error" || st === "cancelled") return job.percent || 0;
+  if (st === "queued") return 0;
+  if (st === "searching") return 4;
+  if (st === "downloading") {
+    const p = Math.max(0, Math.min(100, job.percent || 0));
+    return 8 + p * 0.72; // 8..80
+  }
+  if (st === "converting") return 86;
+  if (st === "tagging") return 94;
+  return job.percent || 0;
+}
+
+function renderBatches(batches) {
+  const ul = $("batches");
+  if (!ul) return;
+  ul.innerHTML = "";
+  for (const b of batches || []) {
+    const li = document.createElement("li");
+    li.className = "batch";
+
+    const top = document.createElement("div");
+    top.className = "job-top";
+
+    const title = document.createElement("div");
+    title.className = "job-title";
+    const label = b.name || b.group || "Download";
+    title.textContent = label;
+    title.title = label;
+
+    const state = document.createElement("span");
+    state.className = "job-state";
+    const errs = b.error ? ` · ${b.error} erro${b.error > 1 ? "s" : ""}` : "";
+    state.textContent = `${b.done}/${b.total} · ${Math.round(b.percent)}%${errs}`;
+
+    top.append(title, state);
+    li.append(top);
+
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const fill = document.createElement("i");
+    fill.style.width = `${Math.max(2, Math.min(100, b.percent || 0))}%`;
+    bar.append(fill);
+    li.append(bar);
+
+    ul.append(li);
+  }
+}
+
 function renderJobs(jobs) {
   const ul = $("jobs");
+  if (!ul) return;
   ul.innerHTML = "";
   const visible = jobs;  // mostra todos; scroll no container
-  $("jobsEmpty").classList.toggle("hidden", visible.length > 0);
+  const empty = $("jobsEmpty");
+  if (empty) empty.classList.toggle("hidden", visible.length > 0);
 
   for (const job of visible) {
     const li = document.createElement("li");
@@ -210,7 +277,7 @@ function renderJobs(jobs) {
       const bar = document.createElement("div");
       bar.className = "bar";
       const fill = document.createElement("i");
-      fill.style.width = `${Math.max(2, Math.min(100, job.percent || 2))}%`;
+      fill.style.width = `${Math.max(2, Math.min(100, jobDisplayPercent(job)))}%`;
       bar.append(fill);
       li.append(bar);
     }
@@ -335,9 +402,12 @@ function updateStatusLine(jobs, history) {
 let lastHistory = [];
 let lastBatchInfo = null;
 let lastJobs = [];
+let resolvedKind = null;
+let previewData = null;
 async function poll() {
   const res = await send({ type: "jobs" });
   if (res.ok && res.data && Array.isArray(res.data.jobs)) {
+    renderBatches(res.data.batches || []);
     if (res.data.jobs.length > 0) {
       lastJobs = res.data.jobs;
       chrome.storage.local.set({ lastJobs: res.data.jobs });
@@ -347,6 +417,7 @@ async function poll() {
       // sem jobs ativos: limpa cache e mostra idle
       lastJobs = [];
       chrome.storage.local.remove(["lastJobs"]);
+      renderBatches([]);
       renderJobs([]);
       updateStatusLine([], lastHistory);
     }
@@ -355,16 +426,18 @@ async function poll() {
 
 /* ---------------------------------------------------------------- acoes */
 
-async function startDownload() {
-  if (!currentUrl) return;
-  const btn = $("download");
-  btn.disabled = true;
-  btn.textContent = "Enviando…";
 
-  const res = await send({ type: "download", url: currentUrl });
+
+
+
+
+async function downloadOne(url, group) {
+  const payload = { url };
+  if (group) payload.group = group;
+  const res = await send({ type: "download", url, group: group || undefined });
   if (!res.ok) {
-    btn.textContent = "Falhou — tentar de novo";
-    btn.disabled = false;
+    const msg = $("saveMsg");
+    if (msg) { msg.textContent = res.error || "falhou"; setTimeout(() => (msg.textContent = ""), 4000); }
     return;
   }
   const jobs = (res.data && res.data.jobs) || [];
@@ -376,20 +449,17 @@ async function startDownload() {
   }
   if (skipped > 0) {
     const msg = $("saveMsg");
-    if (msg) {
-      msg.textContent = `${skipped} já existiam — baixando só as novas.`;
-      setTimeout(() => (msg.textContent = ""), 4000);
-    }
+    if (msg) { msg.textContent = `${skipped} já existiam — baixando só as novas.`; setTimeout(() => (msg.textContent = ""), 4000); }
   }
-  if (jobs.length > 1) {
-    btn.textContent = `${jobs.length} faixas na fila`;
-    setTimeout(() => updateDownloadLabel(), 2500);
-  } else {
-    btn.textContent = "Baixar de novo";
-    setTimeout(() => updateDownloadLabel(), 2500);
-  }
-  btn.disabled = false;
   poll();
+}
+
+async function startDownload() {
+  if (!currentUrl) return;
+  const btn = $("download");
+  if (btn) { btn.disabled = true; btn.textContent = "Enviando…"; }
+  await downloadOne(currentUrl);
+  if (btn) { btn.disabled = false; setTimeout(() => updateDownloadLabel(), 2500); }
 }
 
 async function loadSettings() {
@@ -408,6 +478,10 @@ async function loadSettings() {
     const hint = $("mp3gainHint");
     if (hint) hint.textContent = chrome.i18n.getMessage(avail ? "mp3gainHint" : "mp3gainMissing");
     $("minBitrate").value = res.data.min_bitrate || 0;
+    const par = $("parallel");
+    if (par) par.value = String(Math.min(14, Math.max(1, parseInt(res.data.parallel || "14", 10) || 14)));
+    const ucf = $("useCollectionFolder");
+    if (ucf) ucf.checked = res.data.use_collection_folder !== false;
     const nf = (res.data.name_format || "").trim();
     const sel = $("nameFormat");
     const custom = $("nameFormatCustom");
@@ -445,6 +519,15 @@ async function saveSettings() {
     normalize: $("normalize").checked,
     mp3gain: $("mp3gain").checked,
     min_bitrate: parseInt($("minBitrate").value || "0", 10) || 0,
+    parallel: (() => {
+      const p = $("parallel");
+      const v = parseInt(p ? p.value : "14", 10) || 14;
+      return Math.min(14, Math.max(1, v));
+    })(),
+    use_collection_folder: (() => {
+      const c = $("useCollectionFolder");
+      return c ? c.checked : true;
+    })(),
     name_format: (() => {
       const sel = $("nameFormat");
       if (!sel) return "";
@@ -485,8 +568,122 @@ async function boot() {
   }
 }
 
-$("download").addEventListener("click", startDownload);
-$("save").addEventListener("click", saveSettings);
+window.addEventListener("unhandledrejection", (e) => {
+  try {
+    const msg = (e && e.reason && (e.reason.stack || e.reason.message)) || String(e.reason);
+    console.error("UNHANDLED REJECTION:", msg);
+    const el = $("statusLine");
+    if (el) { el.textContent = "Erro: " + String(msg).slice(0, 120); el.className = "status-line active"; }
+  } catch (_) {}
+});
+window.addEventListener("error", (e) => {
+  try {
+    const msg = (e && (e.error && (e.error.stack || e.error.message)) || e.message) || "";
+    console.error("WINDOW ERROR:", msg);
+    const el = $("statusLine");
+    if (el) { el.textContent = "Erro: " + String(msg).slice(0, 120); el.className = "status-line active"; }
+  } catch (_) {}
+});
+const dlBtn2 = $("download");
+if (dlBtn2) dlBtn2.addEventListener("click", startDownload);
+const saveBtn2 = $("save");
+if (saveBtn2) saveBtn2.addEventListener("click", saveSettings);
+const previewBtn = $("preview");
+if (previewBtn) previewBtn.addEventListener("click", async () => {
+  if (!currentUrl) return;
+  const btn = $("preview");
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  const r = await send({ type: "resolve", url: currentUrl });
+  if (r.ok && r.data) previewData = r.data;
+  if (btn) { btn.disabled = false; btn.textContent = "Buscar info"; }
+  const box = $("previewBox");
+  if (!box) return;
+  if (!r.ok || !r.data) {
+    box.open = true;
+    const t = $("previewTitle");
+    if (t) t.textContent = "Não foi possível resolver";
+    const b = $("previewBody");
+    if (b) b.textContent = (r.error || "serviço offline?");
+    const ul = $("previewTracks");
+    if (ul) ul.innerHTML = "";
+    return;
+  }
+  const data = r.data;
+  box.open = true;
+  const t = $("previewTitle");
+  if (t) t.textContent = data.name || (data.tracks && data.tracks[0] && data.tracks[0].title) || "—";
+  const sm = $("previewSummary");
+  if (sm) sm.textContent = data.name || "Buscar info";
+  const body = $("previewBody");
+  const tracks = data.tracks || [];
+  const existing = data.existing != null ? data.existing : tracks.filter((x) => x.exists).length;
+  let html = "";
+  if (tracks.length === 1) {
+    const tr = tracks[0];
+    html = `${(tr.artists || []).join(", ")} · ${tr.album || ""} · ${tr.duration ? Math.round(tr.duration) + "s" : ""}`;
+    if (tr.exists) html += " · já baixada";
+  } else {
+    html = `${tracks.length} faixas · ${existing} já baixadas`;
+  }
+  if (body) body.textContent = html;
+  const ul = $("previewTracks");
+  if (ul) {
+    ul.innerHTML = "";
+    if (tracks.length > 1) {
+      tracks.forEach((tr, i) => {
+        const li = document.createElement("li");
+        li.className = "job preview-item" + (tr.exists ? " exists" : "");
+        li.style.cursor = "pointer";
+        li.title = tr.exists ? "Já baixada — clique para baixar de novo" : "Clique para baixar esta faixa";
+        const top = document.createElement("div");
+        top.className = "job-top";
+        const title = document.createElement("div");
+        title.className = "job-title";
+        title.textContent = `${tr.track_number || i + 1}. ${tr.title || "?"}`;
+        const state = document.createElement("span");
+        state.className = "job-state " + (tr.exists ? "done" : "");
+        state.textContent = tr.exists ? "✓ existe" : (tr.duration ? Math.round(tr.duration) + "s" : "");
+        top.append(title, state);
+        li.append(top);
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        const fill = document.createElement("i");
+        fill.style.width = tr.exists ? "100%" : "0%";
+        bar.append(fill);
+        li.append(bar);
+        li.addEventListener("click", () => {
+          const url = tr.source;
+          if (url) {
+            li.classList.remove("exists");
+            li.classList.add("downloading");
+            state.textContent = "baixando…";
+            fill.style.width = "30%";
+            const grp = (previewData && previewData.group) || "";
+            downloadOne(url, grp).then(() => {
+              li.classList.remove("downloading");
+              li.classList.add("exists");
+              state.textContent = "✓ existe";
+              fill.style.width = "100%";
+              if (previewData) {
+                send({ type: "resolve", url: currentUrl }).then((r) => {
+                  if (r.ok && r.data) {
+                    previewData = r.data;
+                    const tracks2 = r.data.tracks || [];
+                    const ex2 = r.data.existing != null ? r.data.existing : tracks2.filter((x) => x.exists).length;
+                    const body2 = $("previewBody");
+                    if (body2) body2.textContent = `${tracks2.length} faixas · ${ex2} já baixadas`;
+                  }
+                });
+              }
+            });
+          }
+        });
+        ul.append(li);
+      });
+    }
+  }
+});
+
 $("format").addEventListener("change", updateDownloadLabel);
 $("nameFormat").addEventListener("change", () => {
   const sel = $("nameFormat");
@@ -496,11 +693,11 @@ $("nameFormat").addEventListener("change", () => {
 $("openFolder").addEventListener("click", () => send({ type: "open-folder" }));
 $("clearHistory").addEventListener("click", async () => {
   const res = await send({ type: "clear-history" });
-  if (res.ok) { lastHistory = []; renderHistory([]); $("historyEmpty").classList.remove("hidden"); updateStatusLine([], []); }
+  if (res.ok) { lastHistory = []; renderHistory([]); const he = $("historyEmpty"); if (he) he.classList.remove("hidden"); updateStatusLine([], []); }
 });
 $("clearList").addEventListener("click", async () => {
   const res = await send({ type: "clear-list" });
-  if (res.ok) { lastJobs = []; chrome.storage.local.remove(["lastJobs"]); renderJobs([]); $("jobsEmpty").classList.remove("hidden"); updateStatusLine([], lastHistory); }
+  if (res.ok) { lastJobs = []; chrome.storage.local.remove(["lastJobs"]); renderJobs([]); const je = $("jobsEmpty"); if (je) je.classList.remove("hidden"); updateStatusLine([], lastHistory); }
 });
 $("stopAll").addEventListener("click", async () => {
   const res = await send({ type: "stop-all" });
@@ -510,5 +707,4 @@ $("settingsBox").addEventListener("toggle", (e) => {
   if (e.target.open) loadSettings();
 });
 
-window.addEventListener("unload", () => clearInterval(pollTimer));
 boot();

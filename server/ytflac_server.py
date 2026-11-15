@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.3.3"
+VERSION = "1.4.0"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -63,13 +63,54 @@ UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
 NAME_TEMPLATE = "%(artist,creator,uploader)s - %(title)s.%(ext)s"
 INDEX_FILE = CONFIG_DIR / "downloaded.json"
 
+MAX_PARALLEL = 14  # teto de downloads simultâneos (pool + gate)
+
+
+class ConcurrencyGate:
+    """Limita quantos jobs rodam ao mesmo tempo. O limite pode mudar em runtime
+    sem derrubar jobs já em voo: quem está esperando acorda na hora do notify."""
+
+    def __init__(self, limit: int) -> None:
+        self._cond = threading.Condition()
+        self._limit = max(1, int(limit))
+        self._active = 0
+
+    def set_limit(self, n: int) -> None:
+        with self._cond:
+            self._limit = max(1, min(MAX_PARALLEL, int(n)))
+            self._cond.notify_all()
+
+    @property
+    def limit(self) -> int:
+        with self._cond:
+            return self._limit
+
+    @property
+    def active(self) -> int:
+        with self._cond:
+            return self._active
+
+    def __enter__(self) -> "ConcurrencyGate":
+        with self._cond:
+            while self._active >= self._limit:
+                self._cond.wait()
+            self._active += 1
+        return self
+
+    def __exit__(self, *exc) -> None:
+        with self._cond:
+            self._active -= 1
+            self._cond.notify()
+
+
 jobs: dict[str, dict] = {}
 jobs_order: list[str] = []
 batches: dict[str, dict] = {}
 batches_order: list[str] = []
 HISTORY_FILE = CONFIG_DIR / "history.json"
 lock = threading.Lock()
-pool = ThreadPoolExecutor(max_workers=3)
+pool = ThreadPoolExecutor(max_workers=MAX_PARALLEL)
+gate = ConcurrencyGate(14)  # limite real, sincronizado com a config em main() (padrao 14)
 procs: dict[str, subprocess.Popen] = {}
 
 
@@ -110,7 +151,8 @@ def load_config() -> dict:
     cfg = {"outdir": str(DEFAULT_OUTDIR), "cookies": "",
             "format": "mp3", "normalize": True, "min_bitrate": 0,
             "mp3gain": False, "name_format": "",
-            "loudness_target": -16, "norm_mode": "constant"}
+            "loudness_target": -16, "norm_mode": "constant",
+            "parallel": 14, "use_collection_folder": True}
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict):
@@ -541,6 +583,31 @@ def qobuz_track_meta(qid: str) -> dict:
     return track
 
 
+def qobuz_resolve_album_id(qid: str, url: str = "") -> str:
+    """Resolve o album_id do Qobuz. Se o id da URL não existir, tenta buscar
+    pelo slug (nome do album na URL) e devolve o id do primeiro resultado."""
+    try:
+        _qobuz_get("album/get", {"album_id": qid})
+        return qid
+    except Exception:
+        pass
+    # fallback: extrai o slug do path e busca
+    try:
+        parts = [x for x in urlparse(url).path.split("/") if x]
+        if "album" in parts:
+            idx = parts.index("album")
+            if idx + 1 < len(parts):
+                slug = parts[idx + 1]
+                query = slug.replace("-", " ").replace("_", " ")
+                data = _qobuz_get("album/search", {"query": query, "limit": 5})
+                albums = (data.get("albums") or {}).get("items") or []
+                if albums:
+                    return albums[0].get("id") or qid
+    except Exception:
+        pass
+    return qid
+
+
 def qobuz_collection_meta(kind: str, qid: str) -> dict:
     """Album do Qobuz: nome + lista de faixas."""
     data = _qobuz_get("album/get", {"album_id": qid})
@@ -571,9 +638,19 @@ def qobuz_collection_meta(kind: str, qid: str) -> dict:
         })
     for t in tracks:
         t["track_total"] = len(tracks)
+    # nome completo da pasta/batch: "Artista - Álbum (Versão)" quando houver versão
+    folder_name = artist_name or ""
+    if folder_name and name:
+        folder_name = f"{folder_name} - {name}"
+    elif name:
+        folder_name = name
+    version = data.get("version") or ""
+    if version and folder_name:
+        folder_name = f"{folder_name} ({version})"
     return {
         "kind": "album",
         "name": name,
+        "folder_name": folder_name or name,
         "cover": cover,
         "date": date,
         "tracks": tracks,
@@ -709,6 +786,68 @@ def batch_update(bid: str, ok: bool) -> None:
         entries.insert(0, entry)
         entries = entries[:200]
         _history_write(entries)
+
+
+def job_display_percent(job: dict) -> float:
+    """Percentual suave 0..100 cobrindo TODAS as fases.
+
+    O `percent` cru só anda no download (e é zerado/100 em outras fases), o que
+    faz a barra pular pra 100% e travar na conversão. Aqui cada fase ocupa uma
+    faixa fixa, então a barra flui de 0 a 100 do início ao fim.
+    """
+    st = job.get("status")
+    if st == "done":
+        return 100.0
+    if st in ("error", "cancelled"):
+        return float(job.get("percent") or 0)
+    if st == "queued":
+        return 0.0
+    if st == "searching":
+        return 4.0
+    if st == "downloading":
+        p = max(0.0, min(100.0, float(job.get("percent") or 0)))
+        return 8.0 + p * 0.72  # 8..80
+    if st == "converting":
+        return 86.0
+    if st == "tagging":
+        return 94.0
+    return float(job.get("percent") or 0)
+
+
+def batch_summary(max_items: int = 10) -> list:
+    """Lotes (álbuns/playlists) ainda em andamento, com progresso do conjunto.
+
+    percent = (concluídos + fração dos que estão rodando) / total.
+    """
+    out = []
+    with lock:
+        for bid in reversed(batches_order):
+            b = batches.get(bid)
+            if not b or b.get("status") == "done":
+                continue
+            total = int(b.get("total") or 0)
+            if total <= 1:
+                continue
+            finished = int(b.get("done", 0)) + int(b.get("error", 0))
+            partial = 0.0
+            for jid in b.get("job_ids", []):
+                j = jobs.get(jid)
+                if j and j.get("status") in ("queued", "searching", "downloading",
+                                             "converting", "tagging"):
+                    partial += job_display_percent(j) / 100.0
+            pct = min(100.0, (finished + partial) / total * 100.0)
+            out.append({
+                "id": bid,
+                "name": b.get("name", ""),
+                "group": b.get("group", ""),
+                "total": total,
+                "done": int(b.get("done", 0)),
+                "error": int(b.get("error", 0)),
+                "percent": round(pct, 1),
+            })
+            if len(out) >= max_items:
+                break
+    return out
 
 
 # ---------------------------------------------------------------- download
@@ -925,14 +1064,15 @@ def already_done(job: dict, dest: Path, outdir: Path) -> str:
         # nome mudou em algum momento: confere o indice pelo ID da faixa
         sid = str(meta.get("spotify_id") or "")
         if sid:
-            idx = index_read()
-            known = idx["tracks"].get(sid, "")
-            if known:
-                if Path(known).is_file():
-                    return known
-                # stale: remove
-                idx["tracks"].pop(sid, None)
-                _index_write(idx)
+            with lock:  # read-modify-write do indice: evita interlevar com index_record
+                idx = index_read()
+                known = idx["tracks"].get(sid, "")
+                if known:
+                    if Path(known).is_file():
+                        return known
+                    # stale: remove
+                    idx["tracks"].pop(sid, None)
+                    _index_write(idx)
             # e os arquivos antigos, que tinham o ID no nome
             try:
                 for old in outdir.rglob("*.*"):
@@ -943,13 +1083,14 @@ def already_done(job: dict, dest: Path, outdir: Path) -> str:
         return ""
     vid = video_id(job.get("url", ""))
     if vid:
-        idx = index_read()
-        known = idx["videos"].get(vid, "")
-        if known:
-            if Path(known).is_file():
-                return known
-            idx["videos"].pop(vid, None)
-            _index_write(idx)
+        with lock:  # read-modify-write do indice: evita interlevar com index_record
+            idx = index_read()
+            known = idx["videos"].get(vid, "")
+            if known:
+                if Path(known).is_file():
+                    return known
+                idx["videos"].pop(vid, None)
+                _index_write(idx)
         for ext in (".mp3", ".flac", ".opus", ".ogg", ".m4a", ".webm"):
             try:
                 for f in outdir.rglob(f"*{ext}"):
@@ -1088,6 +1229,12 @@ def apply_mp3gain(path: str) -> str:
 
 
 def run_job(jid: str) -> None:
+    """Entra no gate de concorrência e só então executa o job de verdade."""
+    with gate:
+        _run_job_impl(jid)
+
+
+def _run_job_impl(jid: str) -> None:
     job = snapshot(jid)
     if not job or job.get("status") == "cancelled":
         return
@@ -1279,7 +1426,8 @@ def run_job(jid: str) -> None:
             last_err = cur.get("error") or "yt-dlp saiu com código %d." % code
             is_403 = "403" in last_err or "Forbidden" in last_err
             if is_403 and attempt < 2:
-                time.sleep(2)
+                # backoff exponencial: 1s, 4s, 9s (evita bater no rate-limit do YouTube)
+                time.sleep((attempt + 1) ** 2)
                 continue
             if not is_403:
                 stop_all = True
@@ -1459,6 +1607,8 @@ class Handler(BaseHTTPRequestHandler):
                 "mp3gain": find_binary("mp3gain") or "",
                 "outdir": load_config()["outdir"],
                 "format": load_config().get("format", "mp3"),
+                "parallel": gate.limit,
+                "active": gate.active,
             })
             return
 
@@ -1472,7 +1622,9 @@ class Handler(BaseHTTPRequestHandler):
                             "min_bitrate": int(cfg.get("min_bitrate", 0) or 0),
                             "name_format": cfg.get("name_format", ""),
                             "loudness_target": int(cfg.get("loudness_target", -16) or -16),
-                            "norm_mode": cfg.get("norm_mode", "constant")})
+                            "norm_mode": cfg.get("norm_mode", "constant"),
+                            "parallel": int(cfg.get("parallel", 14)),
+                            "use_collection_folder": bool(cfg.get("use_collection_folder", True))})
             return
 
         if path == "/api/history":
@@ -1493,13 +1645,15 @@ class Handler(BaseHTTPRequestHandler):
                         t["exists"] = bool(already_done({"meta": t, "url": t.get("source", url), "force": False}, Path(load_config()["outdir"]).expanduser(), Path(load_config()["outdir"]).expanduser()))
                         self._json(200, {"kind": "track", "tracks": [t]})
                     else:
-                        coll = qobuz_collection_meta(qref[0], qref[1])
+                        _aid = qobuz_resolve_album_id(qref[1], url)
+                        coll = qobuz_collection_meta(qref[0], _aid)
                         outdir = Path(load_config()["outdir"]).expanduser()
-                        group = safe_name(coll["name"]) if len(coll["tracks"]) > 1 else ""
+                        group = safe_name(coll.get("folder_name") or coll["name"]) if len(coll["tracks"]) > 1 else ""
                         dest = outdir / group if group else outdir
                         for t in coll["tracks"]:
                             t["exists"] = bool(already_done({"meta": t, "url": t.get("source", ""), "force": False}, dest, outdir))
                         coll["existing"] = sum(1 for t in coll["tracks"] if t.get("exists"))
+                        coll["group"] = group
                         self._json(200, coll)
                 elif ref[0] == "track":
                     t = spotify_track_meta(*ref)
@@ -1513,6 +1667,7 @@ class Handler(BaseHTTPRequestHandler):
                     for t in coll["tracks"]:
                         t["exists"] = bool(already_done({"meta": t, "url": t.get("source", ""), "force": False}, dest, outdir))
                     coll["existing"] = sum(1 for t in coll["tracks"] if t.get("exists"))
+                    coll["group"] = group
                     self._json(200, coll)
             except Exception as e:  # noqa: BLE001
                 self._json(502, {"error": f"Falha ao ler a fonte: {e}"})
@@ -1553,7 +1708,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 with lock:
                     listing = [dict(jobs[j]) for j in reversed(jobs_order) if j in jobs][:50]
-                self._json(200, {"jobs": listing})
+                self._json(200, {"jobs": listing, "batches": batch_summary()})
             return
 
         if path.startswith("/api/file/"):
@@ -1609,11 +1764,14 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     if ref[0] == "track":
                         meta = spotify_track_meta(*ref)
+                        _cfg = load_config()
+                        _grp = (body.get("group") or "") if _cfg.get("use_collection_folder", True) else ""
                         job = new_job(url, source="spotify", meta=meta, force=body.get("force", False),
                                       query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
                                       want_duration=meta.get("duration") or 0,
-                                      title=f"{' / '.join(meta['artists'])} - {meta['title']}")
-                        bid = batch_new(job["title"], 1, [job["id"]], "")
+                                      title=f"{' / '.join(meta['artists'])} - {meta['title']}",
+                                      group=_grp)
+                        bid = batch_new(job["title"], 1, [job["id"]], _grp)
                         with lock:
                             jobs[job["id"]]["batch_id"] = bid
                         job["batch_id"] = bid
@@ -1672,23 +1830,29 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     if qref[0] == "track":
                         meta = qobuz_track_meta(qref[1])
+                        _cfg = load_config()
+                        _grp = (body.get("group") or "") if _cfg.get("use_collection_folder", True) else ""
                         job = new_job(url, source="qobuz", meta=meta, force=body.get("force", False),
                                       query=f"{' '.join(meta['artists'])} {meta['title']}".strip(),
                                       want_duration=meta.get("duration") or 0,
-                                      title=f"{' / '.join(meta['artists'])} - {meta['title']}")
-                        bid = batch_new(job["title"], 1, [job["id"]], "")
+                                      title=f"{' / '.join(meta['artists'])} - {meta['title']}",
+                                      group=_grp)
+                        bid = batch_new(job["title"], 1, [job["id"]], _grp)
                         with lock:
                             jobs[job["id"]]["batch_id"] = bid
                         job["batch_id"] = bid
                         pool.submit(run_job, job["id"])
                         self._json(200, {"jobs": [job], "kind": "track"})
                         return
-                    coll = qobuz_collection_meta(qref[0], qref[1])
+                    _aid = qobuz_resolve_album_id(qref[1], url)
+                    coll = qobuz_collection_meta(qref[0], _aid)
                     if not coll["tracks"]:
                         self._json(400, {"error": "Não encontrei faixas nessa coleção."})
                         return
                     made = []
-                    group = safe_name(coll["name"]) if len(coll["tracks"]) > 1 else ""
+                    # pasta/batch: "Artista - Álbum (Versão)" quando houver versão
+                    folder_name = coll.get("folder_name") or coll["name"]
+                    group = safe_name(folder_name) if len(coll["tracks"]) > 1 else ""
                     is_album = (coll.get("kind") == "album")
                     force_download = bool(body.get("force", False)) or is_album
                     _cfg = load_config()
@@ -1716,14 +1880,14 @@ class Handler(BaseHTTPRequestHandler):
                                       group=group,
                                       title=f"{' / '.join(meta['artists'])} - {meta['title']}")
                         made.append(job)
-                    bid = batch_new(coll["name"], len(made), [j["id"] for j in made], group)
+                    bid = batch_new(folder_name, len(made), [j["id"] for j in made], group)
                     for j in made:
                         with lock:
                             jobs[j["id"]]["batch_id"] = bid
                         j["batch_id"] = bid
                         pool.submit(run_job, j["id"])
                     self._json(200, {"jobs": made, "kind": coll["kind"],
-                                     "name": coll["name"], "count": len(made),
+                                     "name": folder_name, "count": len(made),
                                      "skipped": skipped})
                 except Exception as e:  # noqa: BLE001
                     self._json(502, {"error": f"Falha ao ler o Qobuz: {e}"})
@@ -1860,11 +2024,17 @@ class Handler(BaseHTTPRequestHandler):
                 m = str(body.get("norm_mode") or "").strip().lower()
                 if m in ("off", "constant", "dynaudnorm", "loudnorm"):
                     cfg["norm_mode"] = m
-            if "norm_mode" in body:
-                m = str(body.get("norm_mode") or "").strip().lower()
-                if m in ("off", "constant", "dynaudnorm", "loudnorm"):
-                    cfg["norm_mode"] = m
+            if "parallel" in body:
+                try:
+                    # sem "or 3": senão 0 (falsy) viraria 3; o max(1,...) já corrige
+                    cfg["parallel"] = max(1, min(MAX_PARALLEL, int(body.get("parallel"))))
+                except (TypeError, ValueError):
+                    pass
+            if "use_collection_folder" in body:
+                cfg["use_collection_folder"] = bool(body.get("use_collection_folder"))
             save_config(cfg)
+            # aplica o novo limite na hora (muda sem derrubar jobs em voo)
+            gate.set_limit(cfg.get("parallel", 14))
             try:
                 Path(cfg["outdir"]).expanduser().mkdir(parents=True, exist_ok=True)
             except OSError as e:
@@ -1895,6 +2065,7 @@ def main() -> int:
         print("AVISO: ffmpeg não encontrado. Instale com: sudo pacman -S ffmpeg", file=sys.stderr)
 
     cfg = load_config()
+    gate.set_limit(cfg.get("parallel", 14))
     try:
         Path(cfg["outdir"]).expanduser().mkdir(parents=True, exist_ok=True)
     except OSError:

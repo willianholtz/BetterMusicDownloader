@@ -16,6 +16,20 @@ requires deciphering the player signature, and there is no ffmpeg access inside
 an extension. So the extension is just the UI; the heavy lifting is done by a
 local service (`server/ytflac_server.py`) running yt-dlp + ffmpeg.
 
+## Features
+
+- **Multi-source metadata**: Spotify and Qobuz track/album/playlist links. Audio always comes from YouTube (matched by duration); tags come from the source.
+- **Parallel downloads**: configurable 1–14 simultaneous downloads (default 14). Speeds up large albums/playlists.
+- **Progress tracking**: per-track progress bar that flows smoothly across all phases (search → download → convert → tag), plus an overall album/playlist progress card (e.g. "Human After All — 3/10 · 30%").
+- **Preview / "Buscar info"**: inspect metadata and track list (with "already downloaded" status) before downloading. Click a track to download just that one.
+- **Smart folders**: albums/playlists download into a subfolder named after the collection. Single tracks downloaded from a collection can optionally go into the same folder (configurable, default on).
+- **Skip existing**: already-downloaded tracks are detected (by filename + ISRC index) and skipped automatically. Force re-download available.
+- **Retry with backoff**: 403 errors retry with exponential backoff (1s, 4s, 9s) across up to 3 candidates.
+- **Normalization**: configurable loudness target (-23 to -6 LUFS) in constant/dynaudnorm/loudnorm/off modes.
+- **Custom file naming**: `{n} {title} {artist} {album}` placeholders for albums.
+- **Multi-language UI**: English, Spanish, Brazilian Portuguese (follows browser locale).
+- **Output formats**: MP3, M4A/AAC, Opus, OGG Vorbis, FLAC, ALAC, WAV, Original.
+
 ## Spotify
 
 Track, album and playlist links work with the same button. The audio does **not**
@@ -42,10 +56,13 @@ date, ISRC, 640×640 cover, duration), finds the matching video on YouTube by
 form `https://play.qobuz.com/track/<id>` and album links
 `https://www.qobuz.com/<locale>/album/<slug>/<id>`.
 
-Albums are downloaded track by track into a subfolder named after the album.
-Albums are always (re)downloaded in full — existing files are overwritten — so a
-re-run of an album fetches everything again. Playlists keep the "skip already
-downloaded" behaviour.
+Albums are downloaded track by track into a subfolder named after the album
+(`Artist - Album (Version)`). Albums are always (re)downloaded in full — existing
+files are overwritten — so a re-run of an album fetches everything again.
+Playlists keep the "skip already downloaded" behaviour.
+
+The addon also handles Qobuz URLs where the last segment is a slug (not the
+album ID) by searching Qobuz automatically.
 
 ## Quality
 
@@ -109,6 +126,9 @@ sudo apt install zenity
   finishes instantly (no re-download) — you can re-submit a whole playlist and it
   only completes what is missing. To force a re-download, send
   `{"url": "...", "force": true}` to the API.
+- **Seek info before downloading**: click **"Buscar info"** to preview metadata and
+  track list (with "already downloaded" status). Click a track to download just
+  that one. The list stays open and updates as downloads complete.
 
 ### YouTube playlists
 
@@ -127,8 +147,13 @@ itself when you want everything.
 | cookies.txt | optional, for videos requiring login (and Premium for 256 kbps) |
 | Output format | **MP3** (default), **M4A/AAC**, **Opus**, **OGG Vorbis**, **FLAC** (re-encoded, not true lossless), **ALAC**, **WAV**, **Original** (no conversion) |
 | Normalize volume | applies loudnorm (EBU R128) — avoids "quiet" tracks |
+| Normalization mode | Constant (linear, preserves dynamics), Dynaudnorm (smooth), Loudnorm (dynamic), Off |
+| Loudness target (LUFS) | -23 to -6 (default -8). Less negative = louder. |
 | Apply gain to the file (mp3gain) | bakes the level into the MP3, **without re-encoding**, so any player respects it. Needs `mp3gain` installed (AUR); option stays disabled otherwise. Works in 1.5 dB steps and saves undo data in the file. |
 | Minimum quality (kbps) | 0 = accept everything. YouTube free delivers at most ~160 kbps. |
+| Parallel downloads | 1–14 simultaneous (default 14). More = faster albums, more CPU/network. |
+| Use collection folder for single tracks | when downloading a single track from an album/playlist, save it in the same folder (default on) |
+| File name format (albums) | customizable: `{n} {title} {artist} {album}` placeholders |
 
 The `cookies.txt` can be exported with the "Get cookies.txt LOCALLY" extension.
 
@@ -146,6 +171,8 @@ curl -X POST 127.0.0.1:8765/api/jobs -H 'Content-Type: application/json' \
      -d '{"url":"https://www.youtube.com/watch?v=..."}'
 curl -X POST 127.0.0.1:8765/api/jobs -H 'Content-Type: application/json' \
      -d '{"url":"https://open.spotify.com/album/..."}'
+curl -X POST 127.0.0.1:8765/api/jobs -H 'Content-Type: application/json' \
+     -d '{"url":"https://open.spotify.com/track/...","group":"My Folder"}'
 curl '127.0.0.1:8765/api/jobs?id=<id>'
 ```
 

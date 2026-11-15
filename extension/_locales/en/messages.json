@@ -8,6 +8,9 @@
   "btnDownload": {
     "message": "Download audio as MP3"
   },
+  "btnPreview": {
+    "message": "Preview info"
+  },
   "btnDownloadSpotify": {
     "message": "Download from Spotify as MP3"
   },
@@ -61,6 +64,15 @@
   },
   "labelMinBitrate": {
     "message": "Minimum source quality (kbps, 0 = accept all)"
+  },
+  "labelParallel": {
+    "message": "Parallel downloads"
+  },
+  "labelUseCollectionFolder": {
+    "message": "Use collection folder for single tracks"
+  },
+  "useCollectionFolderHint": {
+    "message": "When downloading a single track from an album/playlist, save it in the same folder."
   },
   "minBitrateHint": {
     "message": "YouTube free delivers at most ~160 kbps."

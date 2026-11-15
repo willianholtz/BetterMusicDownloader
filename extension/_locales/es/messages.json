@@ -8,6 +8,9 @@
   "btnDownload": {
     "message": "Descargar audio en MP3"
   },
+  "btnPreview": {
+    "message": "Ver info"
+  },
   "btnDownloadSpotify": {
     "message": "Descargar de Spotify en MP3"
   },
@@ -61,6 +64,15 @@
   },
   "labelMinBitrate": {
     "message": "Calidad mínima de la fuente (kbps, 0 = aceptar todo)"
+  },
+  "labelParallel": {
+    "message": "Descargas simultáneas"
+  },
+  "labelUseCollectionFolder": {
+    "message": "Usar carpeta de la colección para pistas sueltas"
+  },
+  "useCollectionFolderHint": {
+    "message": "Al descargar una pista suelta de un álbum/playlist, guardarla en la misma carpeta."
   },
   "minBitrateHint": {
     "message": "YouTube gratis entrega como máximo ~160 kbps."

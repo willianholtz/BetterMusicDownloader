@@ -13,10 +13,12 @@ const YT_MATCH = [
 
 /* Cria os jobs (um vídeo, ou várias faixas de um álbum/playlist) e acompanha
    todos em segundo plano. */
-async function startJobs(url) {
+async function startJobs(url, group) {
+  const body = { url };
+  if (group) body.group = group;
   const data = await api("/api/jobs", {
     method: "POST",
-    body: JSON.stringify({ url }),
+    body: JSON.stringify(body),
   });
   const created = (data && data.jobs) || [];
   for (const job of created) trackJob(job.id);
@@ -181,7 +183,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true, data: await api("/api/history/clear", { method: "POST" }) });
           break;
         case "download": {
-          const { created, data } = await startJobs(msg.url);
+          const { created, data } = await startJobs(msg.url, msg.group);
           sendResponse({ ok: true, data: { ...data, jobs: created } });
           break;
         }

@@ -15,11 +15,20 @@
   <section id="current" class="card">
     <div class="row-title">
       <div class="video-title" id="videoTitle">—</div>
-      <span id="statusIcon" class="status-icon" title="">●</span>
     </div>
     <div class="video-url" id="videoUrl">—</div>
-    <button id="download" class="btn primary" data-i18n="btnDownload">Baixar áudio em MP3</button>
+    <div class="row" style="gap:6px;margin-top:6px;">
+      <button id="download" class="btn primary" data-i18n="btnDownload">Baixar áudio em MP3</button>
+      <button id="preview" class="btn small" data-i18n="btnPreview">Buscar info</button>
+    </div>
   </section>
+
+  <details id="previewBox" class="settings">
+    <summary id="previewSummary">Buscar info</summary>
+    <div id="previewBody" class="muted" style="font-size:11px;padding:0 2px 4px;"></div>
+    <ul id="previewTracks" class="jobs" style="max-height:180px;overflow:auto;margin:0 0 8px;"></ul>
+  </details>
+
 
   <section id="notVideo" class="card empty hidden" data-i18n="notVideo">
     Abra um vídeo do YouTube/Music ou uma faixa, álbum ou playlist do Spotify para baixar o áudio.
@@ -37,6 +46,7 @@
       <button id="clearList" class="link" data-i18n="clearList">Limpar lista</button>
       <button id="openFolder" class="link" data-i18n="openFolder" title="Abrir pasta de destino">abrir pasta</button>
     </div>
+    <ul id="batches" class="batches"></ul>
     <ul id="jobs" class="jobs"></ul>
     <p id="jobsEmpty" class="muted" data-i18n="noDownloads">Nenhum download ainda.</p>
   </details>
@@ -138,6 +148,35 @@
         <input id="minBitrate" type="number" min="0" step="32" placeholder="0" />
         <span class="info" title="YouTube grátis entrega no máx ~160 kbps.">ⓘ</span>
       </div>
+    </label>
+    <label>
+      <span data-i18n="labelParallel">Downloads ao mesmo tempo</span>
+      <div class="field-row">
+        <select id="parallel">
+          <option value="1">1 (mais leve)</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10">10</option>
+          <option value="11">11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14 (padrão, mais rápido)</option>
+        </select>
+        <span class="info" title="Quantos downloads rodam ao mesmo tempo. Mais = álbuns maiores em menos tempo, mas usa mais CPU/rede.">ⓘ</span>
+      </div>
+    </label>
+    <label class="opt" id="useCollectionFolderOpt">
+      <input id="useCollectionFolder" type="checkbox" />
+      <span class="opt-text">
+        <span class="opt-label" data-i18n="labelUseCollectionFolder">Usar pasta da playlist/álbum para faixas avulsas</span>
+        <span class="opt-hint" data-i18n="useCollectionFolderHint">Ao baixar uma faixa avulsa de uma coleção, salva na mesma pasta da coleção.</span>
+      </span>
     </label>
     <div class="row">
       <button id="save" class="btn small" data-i18n="save">Salvar</button>

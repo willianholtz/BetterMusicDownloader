@@ -246,6 +246,42 @@ code {
 
 .job-actions { display: flex; gap: 10px; margin-top: 6px; }
 
+/* Faixa do preview: degrade verde quando já baixada/existe */
+.preview-item.exists {
+  background: linear-gradient(90deg, rgba(61,220,132,.18), rgba(61,220,132,.05));
+  border-color: rgba(61,220,132,.35);
+}
+.preview-item.exists .bar > i {
+  background: linear-gradient(90deg, #3ddc84, #7af0b0);
+}
+.preview-item.downloading {
+  background: linear-gradient(90deg, rgba(255,106,61,.18), rgba(255,106,61,.05));
+  border-color: rgba(255,106,61,.35);
+}
+.preview-item.downloading .bar > i {
+  background: linear-gradient(90deg, #ff6a3d, #ff9a6a);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
+/* Card de lote (álbum/playlist): destaque com borda colorida e % geral */
+.batches { list-style: none; margin: 0; padding: 0; }
+.batch {
+  background: var(--bg-2);
+  border: 1px solid var(--accent-2);
+  border-radius: 8px;
+  padding: 8px 9px;
+  margin-bottom: 4px;
+  list-style: none;
+}
+.batch .job-state { color: var(--accent-2); font-weight: 600; }
+.batch .bar > i {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
 .settings {
   background: var(--bg-2);
   border: 1px solid var(--line);
