@@ -64,6 +64,17 @@ Playlists keep the "skip already downloaded" behaviour.
 The addon also handles Qobuz URLs where the last segment is a slug (not the
 album ID) by searching Qobuz automatically.
 
+## YouTube / YouTube Music
+
+Any YouTube (or YouTube Music) video or playlist link works exactly like the
+Spotify/Qobuz flows: the audio comes straight from YouTube via yt-dlp, the service
+converts it to **MP3 VBR lame -V0** and embeds metadata.
+
+- Single videos (`youtube.com/watch?v=…`, `youtu.be/…`, `music.youtube.com/watch?v=…`)
+  resolve metadata via yt-dlp and download directly.
+- Playlists (`youtube.com/playlist?list=…`, including `music.youtube.com/playlist?list=…`)
+  download track by track into a folder named after the playlist.
+
 ## Quality
 
 YouTube delivers at most **Opus ~160 kbps** (free) or **~256 kbps** (Premium, with

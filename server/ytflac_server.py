@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -248,6 +248,48 @@ def youtube_playlist_meta(list_id: str) -> dict:
         "uploader": data.get("uploader") or data.get("channel") or "",
         "count": data.get("playlist_count") or len(entries),
         "entries": entries,
+    }
+
+
+def youtube_video_meta(url: str) -> dict:
+    """Meta de um video do YouTube (ou YouTube Music) direto: titulo/artista/duracao."""
+    ytdlp = find_binary("yt-dlp")
+    if not ytdlp:
+        return {}
+    cmd = [ytdlp, "--no-playlist", "--no-warnings", "--no-quiet", "--print",
+           "%(id)s\t%(duration)s\t%(title)s\t%(uploader)s", url] + js_runtime()
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
+                             encoding="utf-8", errors="replace").stdout
+    except Exception:  # noqa: BLE001 - falha de rede/runtime vira meta vazia
+        return {}
+    lines = [l for l in out.splitlines() if l.strip()]
+    line = ""
+    for l in lines:
+        parts = l.split("\t")
+        if len(parts) >= 3 and parts[0].strip() and parts[2].strip():
+            line = l
+            break
+    if not line:
+        return {}
+    parts = line.split("\t")
+    if len(parts) < 3 or not parts[0].strip():
+        return {}
+    vid, dur, title = parts[0].strip(), parts[1], parts[2]
+    artist = parts[3].strip() if len(parts) > 3 else ""
+    try:
+        d = float(dur)
+    except ValueError:
+        d = 0.0
+    return {
+        "source": "youtube",
+        "kind": "video",
+        "source_url": url,
+        "id": vid,
+        "title": title,
+        "artists": [artist] if artist else [],
+        "duration": d,
+        "exists": False,
     }
 
 
@@ -1126,6 +1168,25 @@ def best_audio_bitrate(url: str) -> float:
     return float(best.get("tbr") or 0)
 
 
+def _clean_final_name(path: str) -> str:
+    """Remove duplicacao 'Artista - Artista - Titulo' gerada quando o titulo do
+    yt-dlp ja vem com o artista prefixado (ex.: music.youtube.com/topic videos)."""
+    try:
+        p = Path(path)
+        stem = p.stem
+        parts = [x.strip() for x in stem.split(" - ") if x and x.strip()]
+        if len(parts) >= 3 and parts[0].lower() == parts[1].lower():
+            parts.pop(1)
+            new_stem = " - ".join(parts)
+            if new_stem and new_stem != stem:
+                new = p.with_name(new_stem + p.suffix)
+                p.replace(new)
+                return str(new)
+    except OSError:
+        pass
+    return str(p)
+
+
 def normalize_file(path: str) -> str:
     """Normaliza o volume conforme `norm_mode` no config:
       - "constant": ganho constante (linear loudnorm, 2 passadas) — preserva
@@ -1477,6 +1538,9 @@ def _run_job_impl(jid: str) -> None:
         _mirror_log(jid, log_path)
         return
 
+    if not meta:
+        final = _clean_final_name(final)
+
     if cfg.get("normalize", True) and cfg.get("norm_mode", "constant") != "off" and fmt in ("mp3", "flac", "opus", "m4a", "ogg"):
         update(jid, status="converting", percent=100.0)
         final = normalize_file(final)
@@ -1593,6 +1657,53 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):  # noqa: N802
         self._send(204, b"")
 
+    def _resolve_youtube(self, url: str) -> None:
+        """Resolve URLs do YouTube (e music.youtube.com): video unico ou playlist."""
+        pl = youtube_playlist_id(url)
+        if pl:
+            try:
+                coll = youtube_playlist_meta(pl)
+            except Exception as e:  # noqa: BLE001
+                self._json(502, {"error": f"Falha ao ler a playlist: {e}"})
+                return
+            if not coll.get("entries"):
+                self._json(400, {"error": "Playlist vazia, privada ou indisponível."})
+                return
+            outdir = Path(load_config()["outdir"]).expanduser()
+            group = safe_name(coll["name"]) if len(coll["entries"]) > 1 else ""
+            dest = outdir / group if group else outdir
+            tracks = []
+            existing = 0
+            for i, e in enumerate(coll["entries"], 1):
+                turl = f"https://www.youtube.com/watch?v={e['id']}"
+                t = {
+                    "track_number": i,
+                    "title": e.get("title") or "",
+                    "duration": e.get("duration") or 0,
+                    "source": turl,
+                    "exists": bool(already_done({"url": turl, "force": False}, dest, outdir)),
+                }
+                if t["exists"]:
+                    existing += 1
+                tracks.append(t)
+            self._json(200, {"kind": "playlist", "name": coll.get("name") or "Playlist",
+                            "tracks": tracks, "existing": existing, "group": group})
+            return
+        vm = youtube_video_meta(url)
+        if not vm:
+            self._json(502, {"error": "Falha ao ler o video do YouTube"})
+            return
+        outdir = Path(load_config()["outdir"]).expanduser()
+        vm["exists"] = bool(already_done({"url": url, "force": False}, outdir, outdir))
+        title = vm.get("title") or "YouTube"
+        artist = (vm.get("artists") or [""])[0] if vm.get("artists") else ""
+        if artist and title.lower().startswith(f"{artist.lower()} -"):
+            name = title
+        else:
+            name = f"{artist} - {title}" if artist else title
+        self._json(200, {"kind": "video", "name": name, "tracks": [vm],
+                         "existing": 1 if vm.get("exists") else 0, "group": ""})
+
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
@@ -1635,8 +1746,11 @@ class Handler(BaseHTTPRequestHandler):
             url = (qs.get("url") or [""])[0]
             ref = spotify_ref(url)
             qref = qobuz_ref(url) if not ref else None
+            if is_youtube_url(url):
+                self._resolve_youtube(url)
+                return
             if not ref and not qref:
-                self._json(400, {"error": "URL inválida (Spotify ou Qobuz)"})
+                self._json(400, {"error": "URL inválida (YouTube, Spotify ou Qobuz)"})
                 return
             try:
                 if qref:
@@ -1934,8 +2048,10 @@ class Handler(BaseHTTPRequestHandler):
             if not is_youtube_url(url):
                 self._json(400, {"error": "URL inválida (YouTube ou Spotify)"})
                 return
-            job = new_job(url, force=body.get("force", False))
-            bid = batch_new(job["title"] or "YouTube", 1, [job["id"]], "")
+            _cfg = load_config()
+            _grp = (body.get("group") or "") if _cfg.get("use_collection_folder", True) else ""
+            job = new_job(url, force=body.get("force", False), group=_grp)
+            bid = batch_new(job["title"] or "YouTube", 1, [job["id"]], _grp)
             with lock:
                 jobs[job["id"]]["batch_id"] = bid
             job["batch_id"] = bid
