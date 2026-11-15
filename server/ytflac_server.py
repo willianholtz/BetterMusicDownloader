@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.3"
+VERSION = "1.4.4"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -240,7 +240,7 @@ def youtube_playlist_meta(list_id: str) -> dict:
             continue
         entries.append({
             "id": e["id"],
-            "title": e.get("title") or e["id"],
+            "title": clean_track_title(e.get("title") or e["id"]),
             "duration": e.get("duration") or 0,
         })
     return {
@@ -249,6 +249,17 @@ def youtube_playlist_meta(list_id: str) -> dict:
         "count": data.get("playlist_count") or len(entries),
         "entries": entries,
     }
+
+
+def clean_track_title(s: str) -> str:
+    """Limpa titulo de faixa: remove sufixo parentizado com numero (ex.: '(1794779110)'),
+    sujeiras de metadata e normaliza whitespace."""
+    t = (s or "").strip()
+    t = re.sub(r"\[\]", "", t)
+    t = t.replace("⧸", "-")
+    t = re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"\s*\(\d{4,10}\)\s*$", "", t).strip()
+    return t
 
 
 def youtube_video_meta(url: str) -> dict:
@@ -1313,10 +1324,7 @@ def _youtube_tag_meta(job: dict) -> dict:
     Enriquece com Qobuz (album/track/isrc) quando a busca acha."""
     url = job.get("url") or ""
     vm = youtube_video_meta(url) if url else {}
-    title = (vm.get("title") or job.get("title") or "").strip()
-    title = re.sub(r"\[\]", "", title)
-    title = title.replace("⧸", "-")
-    title = re.sub(r"\s+", " ", title).strip()
+    title = clean_track_title(vm.get("title") or job.get("title") or "")
     artists = [a for a in (vm.get("artists") or []) if a] or []
     album = job.get("group") or ""
     tn = 0
