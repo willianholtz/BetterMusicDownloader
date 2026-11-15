@@ -40,10 +40,6 @@ def tag_mp3(audio, meta, cover_path):
         audio.add_tags()
         t = audio.tags
 
-    for key in list(t.keys()):
-        if key.startswith("APIC"):
-            del t[key]
-
     def put(Frame, value):
         if value in (None, "", 0):
             return
@@ -79,6 +75,9 @@ def tag_mp3(audio, meta, cover_path):
 
     data, mime = _cover_bytes(cover_path)
     if data:
+        for key in list(t.keys()):
+            if key.startswith("APIC"):
+                del t[key]
         t.add(APIC(encoding=3, mime=mime, type=3, desc="Cover", data=data))
     audio.save()
 

@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -257,7 +257,7 @@ def youtube_video_meta(url: str) -> dict:
     if not ytdlp:
         return {}
     cmd = [ytdlp, "--no-playlist", "--no-warnings", "--no-quiet", "--print",
-           "%(id)s\t%(duration)s\t%(title)s\t%(uploader)s", url] + js_runtime()
+           "%(id)s\t%(duration)s\t%(title)s\t%(uploader)s\t%(thumbnail)s", url] + js_runtime()
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
                              encoding="utf-8", errors="replace").stdout
@@ -277,6 +277,7 @@ def youtube_video_meta(url: str) -> dict:
         return {}
     vid, dur, title = parts[0].strip(), parts[1], parts[2]
     artist = parts[3].strip() if len(parts) > 3 else ""
+    thumb = parts[4].strip() if len(parts) > 4 else ""
     try:
         d = float(dur)
     except ValueError:
@@ -289,6 +290,7 @@ def youtube_video_meta(url: str) -> dict:
         "title": title,
         "artists": [artist] if artist else [],
         "duration": d,
+        "cover": thumb if thumb else "",
         "exists": False,
     }
 
