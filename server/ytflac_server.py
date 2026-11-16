@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.5"
+VERSION = "1.4.6"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -288,6 +288,9 @@ def youtube_video_meta(url: str) -> dict:
         return {}
     vid, dur, title = parts[0].strip(), parts[1], parts[2]
     artist = parts[3].strip() if len(parts) > 3 else ""
+    # YouTube Music usa canais "Artista - Topic": limpa para o nome do artista
+    if artist.endswith(" - Topic"):
+        artist = artist[:-len(" - Topic")].strip()
     thumb = parts[4].strip() if len(parts) > 4 else ""
     try:
         d = float(dur)
@@ -1206,6 +1209,7 @@ def _clean_final_name(path: str) -> str:
         stem = re.sub(r"[\\/:*?\"<>|]+", " ", stem)
         stem = re.sub(r"\[\]", "", stem)
         stem = stem.replace("⧸", "-").replace("：", ":")
+        stem = re.sub(r"\s*\(\d{4,10}\)\s*$", "", stem).strip()
         stem = re.sub(r"\s+", " ", stem).strip()
         new = p.with_name(stem + p.suffix) if stem else p
         if stem and new != p:
@@ -1321,7 +1325,10 @@ def apply_mp3gain(path: str) -> str:
 def _youtube_tag_meta(job: dict) -> dict:
     """Meta de tag para jobs do YouTube/Youtube Music (sem vinculo Spotify):
     titulo/artista vindos do yt-dlp + numero de faixa (prefixo da playlist).
-    Enriquece com Qobuz (album/track/isrc) quando a busca acha."""
+    Prioridade de fontes (pedido do usuario): YouTube primeiro, Spotify depois,
+    Qobuz por ultimo (fallback). O YouTube (yt-dlp) e a fonte primaria — os
+    enriquecimentos preenchem apenas os campos que faltaram, nunca sobrescrever
+    o que o YouTube ja trouxe."""
     url = job.get("url") or ""
     vm = youtube_video_meta(url) if url else {}
     title = clean_track_title(vm.get("title") or job.get("title") or "")
@@ -1345,15 +1352,52 @@ def _youtube_tag_meta(job: dict) -> dict:
         "spotify_id": "",
         "source": url or "",
     }
-    if artists and title:
-        try:
-            found = qobuz_track_search(f"{artists[0]} {title}")
-            if found:
-                for k in ("title", "artists", "album", "albumartist", "date", "isrc", "track_number"):
-                    if found.get(k) is not None:
-                        meta[k] = found[k]
-        except Exception:
-            pass
+    if title and artists:
+        query = f"{artists[0]} {title}".strip()
+        found = None
+        # fallback 1: Spotify (quando ha vinculo/identificacao disponivel)
+        sid = str(meta.get("spotify_id") or "")
+        if sid:
+            try:
+                found = spotify_track_meta("track", sid)
+            except Exception:
+                found = None
+        # fallback 2: Qobuz
+        if not found:
+            try:
+                found = qobuz_track_search(query)
+            except Exception:
+                found = None
+        if found:
+            # normaliza o item do Qobuz (track/search devolve campos aninhados:
+            # album e um dict, cover esta em album.image, etc.) para o esquema
+            # do meta — assim nao gravamos dicts (ex.: album virando dict JSON)
+            # e nao sobrescrevemos a fonte primaria (YouTube)
+            q = dict(found)
+            alb = q.get("album")
+            if isinstance(alb, dict):
+                if not q.get("album_title"):
+                    q["album"] = alb.get("title") or ""
+                if not q.get("date"):
+                    q["date"] = (alb.get("release_date_original") or
+                                 alb.get("release_date_download") or "")[:10]
+                if not q.get("cover"):
+                    img = alb.get("image") or {}
+                    q["cover"] = img.get("large") or img.get("small") or ""
+                if not q.get("albumartist"):
+                    q["albumartist"] = (alb.get("artist") or {}).get("name") or \
+                        (q.get("performer") or {}).get("name") or ""
+            if not q.get("artists"):
+                perf = q.get("performer")
+                if isinstance(perf, dict) and perf.get("name"):
+                    q["artists"] = [perf["name"]]
+            if not q.get("isrc"):
+                q["isrc"] = q.get("isrc") or ""
+            # enriquece SO campos que o YouTube nao preencheu — fonte primaria
+            # (YouTube) nunca e sobrescrita por aqui
+            for k in ("title", "artists", "album", "albumartist", "date", "isrc", "track_number", "cover"):
+                if not meta.get(k) and q.get(k) is not None:
+                    meta[k] = q[k]
     return meta
 
 
