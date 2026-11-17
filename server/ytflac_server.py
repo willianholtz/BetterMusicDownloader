@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote, urlencode
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.11"
+VERSION = "1.4.12"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -2050,11 +2050,13 @@ def tag_spotify_file(path: str, meta: dict, dest: Path, fmt: str | None = None, 
         out = dest / (final_name(meta, "mp3")[:-4] + ext)
     else:
         out = dest / final_name(meta, fmt)
-    # evita sobrescrever um arquivo existente (rename=True). Quando rename=False,
-    # out == src e o arquivo existe por definicao — NAO adicionar timestamp
-    # (isso era o que gerava os nomes "(1794792599)" nas faixas do YouTube)
-    if rename and out.exists():
-        out = dest / f"{out.stem} ({int(time.time())}){out.suffix}"
+    # sem collision-avoidance com timestamp: sempre sobrescreve (evita duplicatas
+    # "(1794...)" quando o mesmo arquivo ja existe de um download anterior)
+    if rename and out.exists() and out != src:
+        try:
+            out.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     if not py:
         try:
