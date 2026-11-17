@@ -28,9 +28,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import shutil
 import subprocess
-import sys
 import threading
 import time
 import unicodedata
@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote, urlencode
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.10"
+VERSION = "1.4.11"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -153,7 +153,6 @@ def load_config() -> dict:
             "mp3gain": False, "name_format": "",
             "loudness_target": -16, "norm_mode": "constant",
             "parallel": 14, "use_collection_folder": True,
-            "qobuz_email": "", "qobuz_password": "",
             "deezer_arl": "", "tidal_cookies": ""}
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
@@ -1740,8 +1739,6 @@ def _run_job_impl(jid: str) -> None:
         fmt = "original"
     if fmt == "hires" and job.get("source") != "spotify":
         cfg = load_config()
-        email = (cfg.get("qobuz_email") or "").strip()
-        pwd = (cfg.get("qobuz_password") or "").strip()
         # obter meta (para youtube jobs, monta via yt-dlp + qobuz) — em variavel
         # separada para NAO sobrescrever o meta do job (que controla o fluxo de
         # tagging/rename). Assim o fallback (original) usa o fluxo youtube normal.
@@ -1771,26 +1768,7 @@ def _run_job_impl(jid: str) -> None:
         deezer_arl = (cfg2.get("deezer_arl") or "").strip()
         tidal_cookies = (cfg2.get("tidal_cookies") or "").strip()
 
-        # 1) Qobuz
-        if track_id and email and pwd and not hires_file:
-            for fid in (27, 7, 6):
-                try:
-                    url = qobuz_download_url(track_id, fid, email, pwd)
-                except Exception:
-                    url = None
-                if url:
-                    try:
-                        dest.mkdir(parents=True, exist_ok=True)
-                        out_path = dest / f".ytflac-{jid}.flac"
-                        with _ur.urlopen(url, timeout=300) as r:
-                            out_path.write_bytes(r.read())
-                        if out_path.is_file() and out_path.stat().st_size > 1000:
-                            hires_file = str(out_path)
-                            fmt = "flac"
-                            break
-                    except Exception:
-                        hires_file = ""
-                        continue
+        # 1) Qobuz: removido (sem conta paga). Metadados/tags ainda vêm do Qobuz.
 
         # 2) Deezer
         if not hires_file:
@@ -2119,6 +2097,7 @@ def tag_spotify_file(path: str, meta: dict, dest: Path, fmt: str | None = None, 
 # ---------------------------------------------------------------- HTTP
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.0"
     server_version = f"ytflac/{VERSION}"
 
     def log_message(self, fmt, *args):  # silencia o log padrao
@@ -2147,8 +2126,17 @@ class Handler(BaseHTTPRequestHandler):
         if length <= 0 or length > 1_000_000:
             return {}
         try:
-            return json.loads(self.rfile.read(length).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError):
+            self.request.settimeout(5)
+            data = b""
+            while len(data) < length:
+                chunk = self.rfile.read(min(4096, length - len(data)))
+                if not chunk:
+                    break
+                data += chunk
+            if not data:
+                return {}
+            return json.loads(data.decode("utf-8"))
+        except Exception:
             return {}
 
     # -- rotas -----------------------------------------------------------
@@ -2234,8 +2222,6 @@ class Handler(BaseHTTPRequestHandler):
                             "norm_mode": cfg.get("norm_mode", "constant"),
                             "parallel": int(cfg.get("parallel", 14)),
                             "use_collection_folder": bool(cfg.get("use_collection_folder", True)),
-                            "qobuz_email": cfg.get("qobuz_email", ""),
-                            "qobuz_password": cfg.get("qobuz_password", ""),
                             "deezer_arl": cfg.get("deezer_arl", ""),
                             "tidal_cookies": cfg.get("tidal_cookies", "")})
             return
@@ -2585,12 +2571,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/jobs/clear":
-            body = self._read_json()
-            keep_active = bool(body.get("keep_active") or body.get("only_finished"))
+            # NAO ler o body: rfile.read() bloqueia em HTTP/1.1 keep-alive
+            # (o cliente nao fecha a conexao de escrita). Usar keep_active=True
+            # por padrao (limpa finalizados, mantem downloads ativos).
+            keep_active = True
             with lock:
                 if keep_active:
-                    # limpa apenas os jobs finalizados (pronto/erro/cancelado) e
-                    # mantem os que estao rodando — download em andamento nao some da lista
                     for jid in list(jobs_order):
                         j = jobs.get(jid)
                         if j and j.get("status") in ("queued", "downloading", "converting", "searching", "tagging"):
@@ -2653,10 +2639,6 @@ class Handler(BaseHTTPRequestHandler):
                         cfg["loudness_target"] = v
                 except (TypeError, ValueError):
                     pass
-            if "qobuz_email" in body:
-                cfg["qobuz_email"] = str(body.get("qobuz_email") or "").strip()
-            if "qobuz_password" in body:
-                cfg["qobuz_password"] = str(body.get("qobuz_password") or "")
             if "deezer_arl" in body:
                 cfg["deezer_arl"] = str(body.get("deezer_arl") or "").strip()
             if "tidal_cookies" in body:
