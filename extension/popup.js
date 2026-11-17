@@ -486,6 +486,8 @@ async function loadSettings() {
     $("cookies").value = res.data.cookies || "";
     $("qobuzEmail").value = res.data.qobuz_email || "";
     $("qobuzPassword").value = res.data.qobuz_password || "";
+    $("deezerArl").value = res.data.deezer_arl || "";
+    $("tidalCookies").value = res.data.tidal_cookies || "";
     $("format").value = res.data.format || "mp3";
     $("normalize").checked = !!res.data.normalize;
     const avail = res.data.mp3gain_available !== false;
@@ -536,6 +538,8 @@ async function saveSettings() {
     cookies: $("cookies").value.trim(),
     qobuz_email: $("qobuzEmail").value.trim(),
     qobuz_password: $("qobuzPassword").value,
+    deezer_arl: $("deezerArl").value.trim(),
+    tidal_cookies: $("tidalCookies").value.trim(),
     format: $("format").value,
     normalize: $("normalize").checked,
     mp3gain: $("mp3gain").checked,

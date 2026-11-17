@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote, urlencode
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.8"
+VERSION = "1.4.9"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -153,7 +153,8 @@ def load_config() -> dict:
             "mp3gain": False, "name_format": "",
             "loudness_target": -16, "norm_mode": "constant",
             "parallel": 14, "use_collection_folder": True,
-            "qobuz_email": "", "qobuz_password": ""}
+            "qobuz_email": "", "qobuz_password": "",
+            "deezer_arl": "", "tidal_cookies": ""}
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict):
@@ -796,6 +797,87 @@ def qobuz_login(email: str, password: str) -> tuple[str, str] | None:
         except Exception:
             continue
     return None
+
+
+# ---------------------------------------------------------------- Deezer HiRes (ARL-based, best-effort)
+def deezer_track_search(query: str) -> dict | None:
+    """Busca track no Deezer por artista/titulo. Retorna item ou None."""
+    try:
+        data = http_json("https://api.deezer.com/search?limit=5&q=" + quote(query))
+        items = data.get("data") or []
+        return items[0] if items else None
+    except Exception:
+        return None
+
+
+def deezer_download_url(track_id: str, arl: str) -> str | None:
+    """Tenta obter URL de download FLAC do Deezer via ARL. Best-effort."""
+    if not arl or not track_id:
+        return None
+    try:
+        # 1) getUserData com ARL -> api_token
+        import json as _j
+        url = ("https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData"
+               "&input=3&api_version=1.0&api_token=")
+        req = _ur.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Cookie": f"arl={arl}",
+        })
+        with _ur.urlopen(req, timeout=30) as r:
+            info = _j.loads(r.read().decode("utf-8", "replace"))
+        api_token = (info.get("results") or {}).get("checkForm") or ""
+        if not api_token:
+            return None
+        # 2) pageTrack
+        url2 = ("https://www.deezer.com/ajax/gw-light.php?method=deezer.pageTrack"
+                f"&input=3&api_version=1.0&api_token={api_token}")
+        req2 = _ur.Request(url2, data=f'{{"sng_id":"{track_id}"}}'.encode(),
+                           headers={
+                               "User-Agent": "Mozilla/5.0",
+                               "Cookie": f"arl={arl}",
+                               "Content-Type": "application/json",
+                           })
+        with _ur.urlopen(req2, timeout=30) as r:
+            info2 = _j.loads(r.read().decode("utf-8", "replace"))
+        # tenta extrair url de download
+        results = info2.get("results") or {}
+        # Deezer retorna "download" com url em alguns casos
+        dl = results.get("download") or results.get("SNG_ID") or ""
+        if isinstance(dl, str) and dl.startswith("http"):
+            return dl
+        # fallback: tenta construir URL via md5_origin (não garantido)
+        track = results.get("DATA") or results.get("track") or {}
+        md5 = track.get("MD5_ORIGIN") or track.get("md5_origin")
+        if md5 and track_id:
+            # formato conhecido: https://cdn.deezer.com/deezer/.../{md5}/{track_id}.flac?...
+            return None
+        return None
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------- Tidal HiRes (cookies via yt-dlp, best-effort)
+def tidal_download_url(track_url: str, cookies_path: str = "") -> str | None:
+    """Tenta obter URL de download (FLAC) do Tidal via yt-dlp. Best-effort."""
+    if not track_url:
+        return None
+    ytdlp = find_binary("yt-dlp")
+    if not ytdlp:
+        return None
+    cmd = [ytdlp, "--no-playlist", "-g", "-f", "bestaudio", track_url]
+    if cookies_path and Path(cookies_path).is_file():
+        cmd += ["--cookies", str(Path(cookies_path).expanduser())]
+    cmd += js_runtime()
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                             encoding="utf-8", errors="replace")
+        for line in (out.stdout or "").splitlines():
+            line = line.strip()
+            if line.startswith("http"):
+                return line
+        return None
+    except Exception:
+        return None
 
 
 _QOBUZ_LOGIN_CACHE = {"email": "", "uat": "", "label": "", "app_id": "", "secrets": [], "sec": ""}
@@ -1679,8 +1761,13 @@ def _run_job_impl(jid: str) -> None:
                     track_id = str(found.get("id") or "")
             except Exception:
                 track_id = ""
-        # tentar download HiRes (24/192 -> 24/96 -> 16/44)
-        if track_id and email and pwd:
+        # cadeia de fallback (pedido do usuario): Qobuz -> Deezer -> Tidal -> Amazon -> original
+        cfg2 = load_config()
+        deezer_arl = (cfg2.get("deezer_arl") or "").strip()
+        tidal_cookies = (cfg2.get("tidal_cookies") or "").strip()
+
+        # 1) Qobuz
+        if track_id and email and pwd and not hires_file:
             for fid in (27, 7, 6):
                 try:
                     url = qobuz_download_url(track_id, fid, email, pwd)
@@ -1699,6 +1786,48 @@ def _run_job_impl(jid: str) -> None:
                     except Exception:
                         hires_file = ""
                         continue
+
+        # 2) Deezer
+        if not hires_file:
+            title_d = (hires_meta.get("title") if hires_meta else None) or (meta.get("title") if meta else None) or job.get("title") or ""
+            artists_d = (hires_meta.get("artists") if hires_meta else None) or (meta.get("artists") if meta else None) or []
+            if artists_d and title_d and deezer_arl:
+                dz = deezer_track_search(f"{artists_d[0]} {title_d}")
+                if dz and dz.get("id"):
+                    du = deezer_download_url(str(dz["id"]), deezer_arl)
+                    if du:
+                        try:
+                            dest.mkdir(parents=True, exist_ok=True)
+                            out_path = dest / f".ytflac-{jid}.flac"
+                            with _ur.urlopen(du, timeout=300) as r:
+                                out_path.write_bytes(r.read())
+                            if out_path.is_file() and out_path.stat().st_size > 1000:
+                                hires_file = str(out_path)
+                                fmt = "flac"
+                        except Exception:
+                            hires_file = ""
+
+        # 3) Tidal (best-effort via yt-dlp com cookies)
+        if not hires_file and tidal_cookies:
+            title_t = (hires_meta.get("title") if hires_meta else None) or (meta.get("title") if meta else None) or job.get("title") or ""
+            artists_t = (hires_meta.get("artists") if hires_meta else None) or (meta.get("artists") if meta else None) or []
+            if artists_t and title_t:
+                q = f"{artists_t[0]} {title_t}".strip()
+                tu = tidal_download_url(f"tidalsearch:{q}", tidal_cookies)
+                if tu:
+                    try:
+                        dest.mkdir(parents=True, exist_ok=True)
+                        out_path = dest / f".ytflac-{jid}.flac"
+                        with _ur.urlopen(tu, timeout=300) as r:
+                            out_path.write_bytes(r.read())
+                        if out_path.is_file() and out_path.stat().st_size > 1000:
+                            hires_file = str(out_path)
+                            fmt = "flac"
+                    except Exception:
+                        hires_file = ""
+
+        # 4) Amazon: sem API publica -> skip (placeholder)
+
         if not hires_file:
             # fallback: original (melhor do YouTube, sem converter para FLAC inflado)
             fmt = "original"
@@ -2101,7 +2230,9 @@ class Handler(BaseHTTPRequestHandler):
                             "parallel": int(cfg.get("parallel", 14)),
                             "use_collection_folder": bool(cfg.get("use_collection_folder", True)),
                             "qobuz_email": cfg.get("qobuz_email", ""),
-                            "qobuz_password": cfg.get("qobuz_password", "")})
+                            "qobuz_password": cfg.get("qobuz_password", ""),
+                            "deezer_arl": cfg.get("deezer_arl", ""),
+                            "tidal_cookies": cfg.get("tidal_cookies", "")})
             return
 
         if path == "/api/history":
@@ -2521,6 +2652,10 @@ class Handler(BaseHTTPRequestHandler):
                 cfg["qobuz_email"] = str(body.get("qobuz_email") or "").strip()
             if "qobuz_password" in body:
                 cfg["qobuz_password"] = str(body.get("qobuz_password") or "")
+            if "deezer_arl" in body:
+                cfg["deezer_arl"] = str(body.get("deezer_arl") or "").strip()
+            if "tidal_cookies" in body:
+                cfg["tidal_cookies"] = str(body.get("tidal_cookies") or "").strip()
             if "norm_mode" in body:
                 m = str(body.get("norm_mode") or "").strip().lower()
                 if m in ("off", "constant", "dynaudnorm", "loudnorm"):
