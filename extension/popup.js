@@ -484,6 +484,8 @@ async function loadSettings() {
   if (res.ok && res.data) {
     $("outdir").value = res.data.outdir || "";
     $("cookies").value = res.data.cookies || "";
+    $("qobuzEmail").value = res.data.qobuz_email || "";
+    $("qobuzPassword").value = res.data.qobuz_password || "";
     $("format").value = res.data.format || "mp3";
     $("normalize").checked = !!res.data.normalize;
     const avail = res.data.mp3gain_available !== false;
@@ -532,6 +534,8 @@ async function saveSettings() {
   const payload = {
     outdir: $("outdir").value.trim(),
     cookies: $("cookies").value.trim(),
+    qobuz_email: $("qobuzEmail").value.trim(),
+    qobuz_password: $("qobuzPassword").value,
     format: $("format").value,
     normalize: $("normalize").checked,
     mp3gain: $("mp3gain").checked,

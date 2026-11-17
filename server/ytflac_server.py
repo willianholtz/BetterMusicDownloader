@@ -40,11 +40,11 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, quote, unquote
+from urllib.parse import urlparse, parse_qs, quote, unquote, urlencode
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.7"
+VERSION = "1.4.8"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -152,7 +152,8 @@ def load_config() -> dict:
             "format": "mp3", "normalize": True, "min_bitrate": 0,
             "mp3gain": False, "name_format": "",
             "loudness_target": -16, "norm_mode": "constant",
-            "parallel": 14, "use_collection_folder": True}
+            "parallel": 14, "use_collection_folder": True,
+            "qobuz_email": "", "qobuz_password": ""}
     try:
         data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         if isinstance(data, dict):
@@ -675,6 +676,177 @@ def qobuz_track_search(query: str, limit: int = 5) -> dict | None:
     except Exception:
         return None
 
+
+# ---------------------------------------------------------------- Qobuz HiRes (login + download direto)
+# Bundle/spoofer adaptado do qobuz-dl (vitiko98) — extrai app_id/secrets da web.
+
+import re as _re
+import base64 as _b64
+import hashlib as _hashlib
+import time as _time
+import urllib.request as _ur
+
+_QOBUZ_BUNDLE_CACHE = {"app_id": None, "secrets": None}
+
+
+def qobuz_get_tokens() -> tuple[str, list[str]] | None:
+    """Extrai app_id e secrets do bundle JS do Qobuz (como qobuz-dl)."""
+    global _QOBUZ_BUNDLE_CACHE
+    if _QOBUZ_BUNDLE_CACHE["app_id"] and _QOBUZ_BUNDLE_CACHE["secrets"]:
+        return _QOBUZ_BUNDLE_CACHE["app_id"], _QOBUZ_BUNDLE_CACHE["secrets"]
+    try:
+        req = _ur.Request("https://play.qobuz.com/login",
+                          headers={"User-Agent": "Mozilla/5.0"})
+        with _ur.urlopen(req, timeout=30) as r:
+            html = r.read().decode("utf-8", "replace")
+        m = _re.search(r'<script src="(/resources/\d+\.\d+\.\d+-[a-z]\d{3}/bundle\.js)"></script>', html)
+        if not m:
+            return None
+        bundle_url = "https://play.qobuz.com" + m.group(1)
+        req2 = _ur.Request(bundle_url, headers={"User-Agent": "Mozilla/5.0"})
+        with _ur.urlopen(req2, timeout=60) as r:
+            bundle = r.read().decode("utf-8", "replace")
+        m2 = _re.search(r'production:{api:{appId:"(\d{9})",appSecret:"\w{32}"', bundle)
+        if not m2:
+            return None
+        app_id = m2.group(1)
+        # secrets (seed/timezone/info/extras)
+        seed_re = _re.compile(r'[a-z]\.initialSeed\("(?P<seed>[\w=]+)",window\.utimezone\.(?P<timezone>[a-z]+)\)')
+        from collections import OrderedDict
+        secrets = OrderedDict()
+        for match in seed_re.finditer(bundle):
+            seed, tz = match.group("seed", "timezone")
+            secrets[tz] = [seed]
+        keypairs = list(secrets.items())
+        if len(keypairs) >= 2:
+            secrets.move_to_end(keypairs[1][0], last=False)
+        info_extras_re = _re.compile(
+            r'name:"\w+/(?P<timezone>{})" ,?info:"(?P<info>[\w=]+)",extras:"(?P<extras>[\w=]+)"'.format(
+                "|".join([tz.capitalize() for tz in secrets])
+            ).replace(" ,?", ",?"))
+        # fallback: looser match
+        if not list(info_extras_re.finditer(bundle)):
+            info_extras_re = _re.compile(
+                r'name:"\w+/(?P<timezone>' + "|".join([tz.capitalize() for tz in secrets]) + r')"\s*,?\s*info:"(?P<info>[\w=]+)",extras:"(?P<extras>[\w=]+)"'
+            )
+        for match in info_extras_re.finditer(bundle):
+            tz = match.group("timezone").lower()
+            info = match.group("info")
+            extras = match.group("extras")
+            if tz in secrets:
+                secrets[tz] += [info, extras]
+        for tz in list(secrets.keys()):
+            try:
+                secrets[tz] = _b64.standard_b64decode("".join(secrets[tz])[:-44]).decode("utf-8")
+            except Exception:
+                secrets[tz] = ""
+        secret_list = [v for v in secrets.values() if v]
+        if not secret_list:
+            return None
+        _QOBUZ_BUNDLE_CACHE["app_id"] = app_id
+        _QOBUZ_BUNDLE_CACHE["secrets"] = secret_list
+        return app_id, secret_list
+    except Exception:
+        return None
+
+
+def qobuz_login(email: str, password: str) -> tuple[str, str] | None:
+    """Login no Qobuz. Retorna (user_auth_token, membership_label) ou None."""
+    toks = qobuz_get_tokens()
+    if not toks:
+        return None
+    app_id, secrets = toks
+    for sec in secrets:
+        try:
+            params = {"email": email, "password": password, "app_id": app_id}
+            url = "https://www.qobuz.com/api.json/0.2/user/login?" + "&".join(
+                f"{k}={quote(str(v))}" for k, v in params.items()
+            )
+            req = _ur.Request(url, headers={
+                "User-Agent": "Mozilla/5.0",
+                "X-App-Id": app_id,
+                "Content-Type": "application/json;charset=UTF-8",
+            })
+            # qobuz expects POST for login
+            data = urlencode(params).encode()
+            req = _ur.Request("https://www.qobuz.com/api.json/0.2/user/login",
+                              data=data, headers={
+                                  "User-Agent": "Mozilla/5.0",
+                                  "X-App-Id": app_id,
+                                  "Content-Type": "application/x-www-form-urlencoded",
+                              })
+            with _ur.urlopen(req, timeout=30) as r:
+                info = json.loads(r.read().decode("utf-8", "replace"))
+            uat = info.get("user_auth_token")
+            params_cred = (info.get("user") or {}).get("credential", {}).get("parameters", {})
+            label = params_cred.get("short_label") or ""
+            if not uat:
+                continue
+            # free accounts not eligible
+            if not params_cred:
+                return None
+            # cache on config? store in memory only
+            _QOBUZ_LOGIN_CACHE["email"] = email
+            _QOBUZ_LOGIN_CACHE["uat"] = uat
+            _QOBUZ_LOGIN_CACHE["label"] = label
+            _QOBUZ_LOGIN_CACHE["app_id"] = app_id
+            _QOBUZ_LOGIN_CACHE["secrets"] = secrets
+            _QOBUZ_LOGIN_CACHE["sec"] = sec
+            return uat, label
+        except Exception:
+            continue
+    return None
+
+
+_QOBUZ_LOGIN_CACHE = {"email": "", "uat": "", "label": "", "app_id": "", "secrets": [], "sec": ""}
+
+
+def qobuz_download_url(track_id: str, fmt_id: int, email: str = "", password: str = "") -> str | None:
+    """Retorna URL de download do Qobuz para a track, ou None."""
+    # use cached login if available
+    cache = _QOBUZ_LOGIN_CACHE
+    if not cache.get("uat"):
+        if not email or not password:
+            return None
+        res = qobuz_login(email, password)
+        if not res:
+            return None
+    app_id = cache["app_id"]
+    secrets = cache["secrets"]
+    sec = cache["sec"]
+    uat = cache["uat"]
+    if fmt_id not in (5, 6, 7, 27):
+        fmt_id = 6
+    # try each secret
+    for s in ([sec] + [x for x in secrets if x != sec]):
+        try:
+            unix = _time.time()
+            r_sig = "trackgetFileUrlformat_id{}intentstreamtrack_id{}{}{}".format(
+                fmt_id, track_id, unix, s
+            )
+            r_sig_hashed = _hashlib.md5(r_sig.encode("utf-8")).hexdigest()
+            params = {
+                "request_ts": unix,
+                "request_sig": r_sig_hashed,
+                "track_id": track_id,
+                "format_id": fmt_id,
+                "intent": "stream",
+            }
+            qs = "&".join(f"{k}={quote(str(v))}" for k, v in params.items())
+            url = "https://www.qobuz.com/api.json/0.2/track/getFileUrl?" + qs
+            req = _ur.Request(url, headers={
+                "User-Agent": "Mozilla/5.0",
+                "X-App-Id": app_id,
+                "X-User-Auth-Token": uat,
+                "Content-Type": "application/json;charset=UTF-8",
+            })
+            with _ur.urlopen(req, timeout=30) as r:
+                info = json.loads(r.read().decode("utf-8", "replace"))
+            if info.get("url"):
+                return info["url"]
+        except Exception:
+            continue
+    return None
 
 def qobuz_collection_meta(kind: str, qid: str) -> dict:
     """Album do Qobuz: nome + lista de faixas."""
@@ -1447,7 +1619,7 @@ def _run_job_impl(jid: str) -> None:
         return
 
     fmt = (cfg.get("format") or "mp3").lower()
-    if fmt not in ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "original"):
+    if fmt not in ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "original", "hires"):
         fmt = "mp3"
 
     min_br = int(cfg.get("min_bitrate") or 0)
@@ -1473,6 +1645,63 @@ def _run_job_impl(jid: str) -> None:
             itunes_fill(meta)
         deezer_isrc(meta)
         update(jid, meta=meta)
+
+    # --- Modo HiRes: tenta baixar FLAC real do Qobuz (não do YouTube) ---
+    # Isolado: só ativa quando format == "hires". Se falhar, fallback para
+    # "original" (melhor do YouTube) — nunca deixa FLAC inflado de lossy.
+    hires_file = ""
+    hires_meta = None
+    if fmt == "hires":
+        cfg = load_config()
+        email = (cfg.get("qobuz_email") or "").strip()
+        pwd = (cfg.get("qobuz_password") or "").strip()
+        # obter meta (para youtube jobs, monta via yt-dlp + qobuz) — em variavel
+        # separada para NAO sobrescrever o meta do job (que controla o fluxo de
+        # tagging/rename). Assim o fallback (original) usa o fluxo youtube normal.
+        hires_meta = meta
+        if not hires_meta:
+            try:
+                hires_meta = _youtube_tag_meta(job)
+            except Exception:
+                hires_meta = None
+        # track_id do Qobuz
+        track_id = ""
+        if meta and job.get("source") == "qobuz":
+            track_id = str(meta.get("spotify_id") or "")
+            if not track_id:
+                src = meta.get("source") or ""
+                if "/track/" in src:
+                    track_id = src.rsplit("/track/", 1)[-1]
+        if not track_id and hires_meta and (hires_meta.get("artists") or []) and hires_meta.get("title"):
+            try:
+                found = qobuz_track_search(f"{hires_meta['artists'][0]} {hires_meta['title']}")
+                if found:
+                    track_id = str(found.get("id") or "")
+            except Exception:
+                track_id = ""
+        # tentar download HiRes (24/192 -> 24/96 -> 16/44)
+        if track_id and email and pwd:
+            for fid in (27, 7, 6):
+                try:
+                    url = qobuz_download_url(track_id, fid, email, pwd)
+                except Exception:
+                    url = None
+                if url:
+                    try:
+                        dest.mkdir(parents=True, exist_ok=True)
+                        out_path = dest / f".ytflac-{jid}.flac"
+                        with _ur.urlopen(url, timeout=300) as r:
+                            out_path.write_bytes(r.read())
+                        if out_path.is_file() and out_path.stat().st_size > 1000:
+                            hires_file = str(out_path)
+                            fmt = "flac"
+                            break
+                    except Exception:
+                        hires_file = ""
+                        continue
+        if not hires_file:
+            # fallback: original (melhor do YouTube, sem converter para FLAC inflado)
+            fmt = "original"
     # faixas do Spotify: baixa para um nome temporario e depois grava as tags
     if meta:
         template = outdir / f".ytflac-{jid}.%(ext)s"
@@ -1516,11 +1745,17 @@ def _run_job_impl(jid: str) -> None:
     if not candidates:
         candidates = [target] if target else []
 
-    code = 1
+    # HiRes: arquivo ja baixado do Qobuz — pula o yt-dlp
+    if hires_file:
+        code = 0
+    else:
+        code = 1
     last_err = ""
     stop_all = False
     downloaded_path = ""
     for ci, cand in enumerate(candidates[:3]):
+        if hires_file:
+            break
         for attempt in range(3):
             if (snapshot(jid) or {}).get("status") == "cancelled":
                 return
@@ -1627,6 +1862,8 @@ def _run_job_impl(jid: str) -> None:
 
     cur = snapshot(jid) or {}
     final = cur.get("file", "")
+    if hires_file:
+        final = hires_file
     if not final or not Path(final).is_file():
         # fallback: arquivo mais recente na pasta (filtra audio e o prefixo do job)
         try:
@@ -1650,8 +1887,9 @@ def _run_job_impl(jid: str) -> None:
         _mirror_log(jid, log_path)
         return
 
-    if not meta:
-        final = _clean_final_name(final)
+    # limpa nome (remove duplicacao "Artista - Artista - Titulo", sufixos
+    # numericos, etc.) — seguro chamar sempre (no-op quando new == p)
+    final = _clean_final_name(final)
 
     if cfg.get("normalize", True) and cfg.get("norm_mode", "constant") != "off" and fmt in ("mp3", "flac", "opus", "m4a", "ogg"):
         update(jid, status="converting", percent=100.0)
@@ -1661,7 +1899,11 @@ def _run_job_impl(jid: str) -> None:
         update(jid, status="converting", percent=100.0)
         final = apply_mp3gain(final)
 
-    if meta:
+    if hires_file:
+        # HiRes: grava tags (rename=True para nome final proper)
+        update(jid, status="tagging", percent=100.0)
+        final = tag_spotify_file(final, hires_meta if hires_meta else (meta or _youtube_tag_meta(job)), dest, fmt="flac", rename=True)
+    elif meta:
         update(jid, status="tagging", percent=100.0)
         final = tag_spotify_file(final, meta, dest, fmt)
     elif (job.get("source") or "youtube") == "youtube":
@@ -1857,7 +2099,9 @@ class Handler(BaseHTTPRequestHandler):
                             "loudness_target": int(cfg.get("loudness_target", -16) or -16),
                             "norm_mode": cfg.get("norm_mode", "constant"),
                             "parallel": int(cfg.get("parallel", 14)),
-                            "use_collection_folder": bool(cfg.get("use_collection_folder", True))})
+                            "use_collection_folder": bool(cfg.get("use_collection_folder", True)),
+                            "qobuz_email": cfg.get("qobuz_email", ""),
+                            "qobuz_password": cfg.get("qobuz_password", "")})
             return
 
         if path == "/api/history":
@@ -2253,7 +2497,7 @@ class Handler(BaseHTTPRequestHandler):
                 cfg["cookies"] = (body.get("cookies") or "").strip()
             if "format" in body:
                 fmt = (body.get("format") or "").strip().lower()
-                if fmt in ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "original"):
+                if fmt in ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "original", "hires"):
                     cfg["format"] = fmt
             if "normalize" in body:
                 cfg["normalize"] = bool(body.get("normalize"))
@@ -2273,6 +2517,10 @@ class Handler(BaseHTTPRequestHandler):
                         cfg["loudness_target"] = v
                 except (TypeError, ValueError):
                     pass
+            if "qobuz_email" in body:
+                cfg["qobuz_email"] = str(body.get("qobuz_email") or "").strip()
+            if "qobuz_password" in body:
+                cfg["qobuz_password"] = str(body.get("qobuz_password") or "")
             if "norm_mode" in body:
                 m = str(body.get("norm_mode") or "").strip().lower()
                 if m in ("off", "constant", "dynaudnorm", "loudnorm"):
