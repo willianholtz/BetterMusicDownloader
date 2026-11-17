@@ -44,7 +44,7 @@ from urllib.parse import urlparse, parse_qs, quote, unquote, urlencode
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("YTFLAC_PORT", "8765"))
-VERSION = "1.4.9"
+VERSION = "1.4.10"
 
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "ytflac"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -1728,12 +1728,17 @@ def _run_job_impl(jid: str) -> None:
         deezer_isrc(meta)
         update(jid, meta=meta)
 
-    # --- Modo HiRes: tenta baixar FLAC real do Qobuz (não do YouTube) ---
+    # --- Modo HiRes: tenta baixar FLAC real (Qobuz/Deezer/Tidal). ---
     # Isolado: só ativa quando format == "hires". Se falhar, fallback para
     # "original" (melhor do YouTube) — nunca deixa FLAC inflado de lossy.
+    # Regra: se a fonte original for Spotify, nao tenta HiRes de outras
+    # plataformas — baixa o original (OGG) do Spotify.
     hires_file = ""
     hires_meta = None
-    if fmt == "hires":
+    if fmt == "hires" and job.get("source") == "spotify":
+        # Spotify nao tem FLAC/HiRes: baixa o original (OGG) sem tentar outras plataformas
+        fmt = "original"
+    if fmt == "hires" and job.get("source") != "spotify":
         cfg = load_config()
         email = (cfg.get("qobuz_email") or "").strip()
         pwd = (cfg.get("qobuz_password") or "").strip()
