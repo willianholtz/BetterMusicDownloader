@@ -20,7 +20,9 @@
     "https://youtu.be/*",
     "https://open.spotify.com/*",
     "https://www.qobuz.com/*",
-    "https://play.qobuz.com/*"
+    "https://play.qobuz.com/*",
+    "https://music.amazon.com/*",
+    "https://music.amazon.com.br/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -1,7 +1,7 @@
 /* YouTube -> FLAC: interface do popup. */
 
 const API = "http://127.0.0.1:8765";
-const MEDIA_RE = /^https?:\/\/((www\.|m\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)|(open|play)\.spotify\.com|(www\.)?qobuz\.com|play\.qobuz\.com)\//i;
+const MEDIA_RE = /^https?:\/\/((www\.|m\.|music\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)|(open|play)\.spotify\.com|(www\.)?qobuz\.com|play\.qobuz\.com|music\.amazon\.com(?:\.br)?\/(albums|tracks)\/[^\/?]+|www\.amazon\.com\/music\/(albums|tracks)\/[^\/?]+)(\/|$)/i;
 
 function isSpotify(url) {
   return /^https?:\/\/(open|play)\.spotify\.com\//i.test(url);
@@ -9,6 +9,9 @@ function isSpotify(url) {
 
 function isQobuz(url) {
   return /^https?:\/\/((www\.)?qobuz\.com|play\.qobuz\.com)\//i.test(url);
+}
+function isAmazonMusic(url) {
+  return /^https?:\/\/(music\.amazon\.com(?:\.br)?|www\.amazon\.com\/music)\/(albums|tracks)\//i.test(url || "");
 }
 
 const FORMAT_LABELS = {
@@ -28,6 +31,7 @@ function updateDownloadLabel() {
   else if (resolvedKind === "album") btn.textContent = `Baixar álbum em ${fmt}`;
   else if (resolvedKind === "playlist") btn.textContent = `Baixar playlist em ${fmt}`;
   else if (resolvedKind === "track") btn.textContent = `Baixar faixa em ${fmt}`;
+  else if (isAmazonMusic(currentUrl)) btn.textContent = `Baixar do Amazon Music (FLAC)`;
   else if (isSpotify(currentUrl)) btn.textContent = `Baixar do Spotify em ${fmt}`;
   else if (isQobuz(currentUrl)) btn.textContent = `Baixar do Qobuz em ${fmt}`;
   else btn.textContent = `Baixar áudio em ${fmt}`;
@@ -37,6 +41,7 @@ function cleanTitle(title) {
   return String(title || "")
     .replace(/ - YouTube( Music)?$/, "")
     .replace(/\s*[|·]\s*Spotify\s*$/i, "")
+    .replace(/ - Amazon Music(?: .*)?$/i, "")
     .replace(/ - song and lyrics by .*$/i, "")
     .replace(/ - Single by .*$/i, "")
     .replace(/ - Album by .*$/i, "")
@@ -123,7 +128,8 @@ async function loadCurrentTab() {
   if (isMedia) {
     const spotify = isSpotify(currentUrl);
     const qobuz = isQobuz(currentUrl);
-    const metaSource = spotify || qobuz;
+    const amazon = isAmazonMusic(currentUrl);
+    const metaSource = (spotify || qobuz) && !amazon;
     let resolvedName = "";
     if (metaSource) {
       const r = await send({ type: "resolve", url: currentUrl });
@@ -170,6 +176,8 @@ async function loadCurrentTab() {
         } else {
           icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Não foi possível ler a playlist.";
         }
+      } else if (amazon) {
+        icon.classList.add("blue"); icon.textContent = "●"; icon.title = "Baixar do Amazon Music (FLAC) via lucidadl";
       } else {
         const res = await send({ type: "exists", url: currentUrl });
         if (!res.ok) { icon.classList.add("gray"); icon.textContent = "●"; icon.title = "Não foi possível verificar (serviço offline?)"; }
@@ -451,7 +459,9 @@ async function poll() {
 async function downloadOne(url, group) {
   const payload = { url };
   if (group) payload.group = group;
-  const res = await send({ type: "download", url, group: group || undefined });
+  const vt = $("videoTitle");
+  const title = cleanTitle(vt && vt.textContent ? vt.textContent : "");
+  const res = await send({ type: "download", url, group: group || undefined, title });
   if (!res.ok) {
     const msg = $("saveMsg");
     if (msg) { msg.textContent = res.error || "falhou"; setTimeout(() => (msg.textContent = ""), 4000); }

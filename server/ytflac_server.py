@@ -56,14 +56,45 @@ YOUTUBE_HOSTS = {
 }
 SPOTIFY_HOSTS = {"open.spotify.com", "play.spotify.com", "spotify.link", "spotify.app.link"}
 QOBUZ_HOSTS = {"www.qobuz.com", "qobuz.com", "play.qobuz.com"}
+AMAZON_HOSTS = {"music.amazon.com", "music.amazon.com.br", "music.amazon.co.uk", "music.amazon.de", "music.amazon.fr", "music.amazon.it", "music.amazon.es", "music.amazon.co.jp", "music.amazon.ca", "music.amazon.com.au"}
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
 
 NAME_TEMPLATE = "%(artist,creator,uploader)s - %(title)s.%(ext)s"
 INDEX_FILE = CONFIG_DIR / "downloaded.json"
+AMAZON_INDEX_FILE = CONFIG_DIR / "amazon_done.json"
 
 MAX_PARALLEL = 14  # teto de downloads simultâneos (pool + gate)
+
+
+def amazon_key(url: str) -> str:
+    """Chave estável do álbum/faixa Amazon (ID do path)."""
+    return (url or "").rstrip("/").split("/")[-1].split("?")[0]
+
+
+def amazon_index_read() -> dict:
+    try:
+        data = json.loads(AMAZON_INDEX_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def amazon_index_add(url: str, dest_dir: str) -> None:
+    key = amazon_key(url)
+    if not key:
+        return
+    with lock:
+        data = amazon_index_read()
+        data[key] = {"url": url, "dir": dest_dir, "when": time.time()}
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            AMAZON_INDEX_FILE.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
 
 
 class ConcurrencyGate:
@@ -353,6 +384,21 @@ def qobuz_ref(url: str) -> tuple[str, str] | None:
         idx = parts.index("track")
         if idx + 1 < len(parts):
             return "track", parts[-1]
+    return None
+
+
+def amazon_ref(url: str) -> str | None:
+    """Retorna a URL normalizada do Amazon Music se for válida."""
+    try:
+        p = urlparse(url)
+    except ValueError:
+        return None
+    host = (p.hostname or "").lower()
+    if host not in AMAZON_HOSTS:
+        return None
+    parts = [x for x in p.path.split("/") if x]
+    if "albums" in parts or "tracks" in parts or "playlists" in parts:
+        return url.strip()
     return None
 
 
@@ -1660,9 +1706,197 @@ def run_job(jid: str) -> None:
         _run_job_impl(jid)
 
 
+def _run_amazon_job(jid: str) -> None:
+    """Baixa do Amazon Music via lucidadl (subprocess).
+
+    O lucidadl sempre grava em <out>/Artists/<Artist>/<Album>/. Pra não
+    poluir a raiz com essa hierarquia, baixamos num staging em .incoming/ e
+    só movemos o resultado final pra <outdir>/<Artist> - <Album>/.
+    """
+    job = snapshot(jid)
+    if not job or job.get("status") == "cancelled":
+        return
+    url = job.get("url", "")
+    cfg = load_config()
+    outdir = Path(cfg["outdir"]).expanduser()
+    try:
+        outdir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        update(jid, status="error", error=f"Não consegui criar a pasta de destino: {e}")
+        return
+
+    lucidadl = find_binary("lucidadl") or str(Path(__file__).parent / "venv" / "bin" / "lucidadl")
+    if not Path(lucidadl).exists():
+        update(jid, status="error", error="lucidadl não encontrado. Instale com: pip install lucidadl")
+        return
+
+    staging = outdir / ".incoming" / f"amazon-{jid[:12]}"
+    try:
+        staging.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        update(jid, status="error", error=f"Não consegui criar staging: {e}")
+        return
+
+    update(jid, status="searching", percent=5, title=job.get("title") or "Amazon Music")
+
+    import subprocess, threading
+    try:
+        proc = subprocess.Popen(
+            ["stdbuf", "-oL", lucidadl, "album", url, "-s", "amazon", "-o", str(staging),
+             "--hidden", "-F", "original"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    except Exception as e:
+        update(jid, status="error", error=f"Falha ao iniciar lucidadl: {e}")
+        return
+
+    # Registra o proc pra /api/jobs/cancel conseguir terminar
+    with lock:
+        procs[jid] = proc
+
+    # Lê stdout em thread separada pra reportar progresso
+    done_count = [0]
+    def _reader():
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("✓"):
+                done_count[0] += 1
+                update(jid, status="downloading", percent=min(90, 5 + done_count[0] * 5))
+                # extrai "Artista - Álbum" do caminho do lucidadl e atualiza o título
+                m = re.search(r"Artists/([^/]+)/([^/]+)/[^/]+\.flac", line)
+                if m and done_count[0] == 1:
+                    update(jid, title=f"{m.group(1)} - {m.group(2)}")
+            elif line.startswith("▶") and done_count[0] == 0:
+                # primeira faixa: mostra o nome dela enquanto resolve
+                track_name = line.lstrip("▶ ").strip()
+                if track_name:
+                    update(jid, title=track_name)
+            elif "Converting" in line or "converting" in line:
+                update(jid, status="converting", percent=min(95, job.get("percent", 0) + 1))
+            elif "Ripping" in line or "ripping" in line:
+                update(jid, status="downloading", percent=min(80, job.get("percent", 0) + 1))
+            elif line.startswith("✗") or "error" in line.lower() or "failed" in line.lower():
+                pass  # ignora erros individuais
+            elif "Done" in line:
+                break
+    reader_thread = threading.Thread(target=_reader, daemon=True)
+    reader_thread.start()
+
+    # Monitora o staging enquanto o lucidadl roda
+    import time as _time
+    while proc.poll() is None:
+        _time.sleep(2)
+        try:
+            flac_count = sum(1 for _ in staging.rglob("*.flac"))
+        except Exception:
+            flac_count = 0
+        if flac_count > 0:
+            update(jid, status="downloading", percent=min(90, 5 + flac_count * 5))
+        # checa status REAL (snapshot), não o dict job que é estático
+        cur = snapshot(jid)
+        if not cur or cur.get("status") == "cancelled":
+            proc.terminate()
+            try:
+                proc.wait(timeout=6)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            with lock:
+                procs.pop(jid, None)
+            try:
+                shutil.rmtree(staging)
+            except OSError:
+                pass
+            return
+
+    reader_thread.join(timeout=5)
+    with lock:
+        procs.pop(jid, None)
+
+    # Cancelado enquanto terminava? não move nada (re-lê snapshot: pode ter
+    # mudado durante reader_thread.join)
+    cur = snapshot(jid)
+    if not cur or cur.get("status") == "cancelled":
+        try:
+            shutil.rmtree(staging)
+        except OSError:
+            pass
+        return
+
+    if proc.returncode != 0:
+        # -15 = SIGTERM: cancel pode ter chegado no meio do join; re-checa
+        cur = snapshot(jid)
+        if cur and cur.get("status") == "cancelled":
+            try:
+                shutil.rmtree(staging)
+            except OSError:
+                pass
+            return
+        try:
+            shutil.rmtree(staging)
+        except OSError:
+            pass
+        update(jid, status="error", error=f"lucidadl retornou código {proc.returncode}")
+        return
+
+    # Move Artists/<Artist>/<Album>/* do staging pra <outdir>/<Artist> - <Album>/
+    try:
+        artists_dir = staging / "Artists"
+        if artists_dir.exists():
+            for artist_dir in artists_dir.iterdir():
+                if not artist_dir.is_dir():
+                    continue
+                for album_dir in artist_dir.iterdir():
+                    if not album_dir.is_dir():
+                        continue
+                    dest_name = f"{artist_dir.name} - {album_dir.name}"
+                    dest_dir = outdir / dest_name
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    for f in album_dir.iterdir():
+                        if f.is_file():
+                            target = dest_dir / f.name
+                            if not target.exists():
+                                f.rename(target)
+                            else:
+                                try:
+                                    f.unlink()  # duplicado
+                                except OSError:
+                                    pass
+                    try:
+                        album_dir.rmdir()
+                    except OSError:
+                        pass
+                try:
+                    artist_dir.rmdir()
+                except OSError:
+                    pass
+            try:
+                artists_dir.rmdir()
+            except OSError:
+                pass
+    except Exception:
+        pass  # não falha o job se a reorganização falhar
+
+    # limpa staging (mesmo vazio)
+    try:
+        shutil.rmtree(staging)
+    except OSError:
+        pass
+
+    # Grava no índice próprio (usado pelo dedup do /api/jobs)
+    amazon_index_add(url, str(outdir))
+
+    update(jid, status="done", percent=100, finished=time.time())
+
+
 def _run_job_impl(jid: str) -> None:
     job = snapshot(jid)
     if not job or job.get("status") == "cancelled":
+        return
+
+    # Amazon Music → lucidadl
+    if job.get("source") == "amazon":
+        _run_amazon_job(jid)
         return
 
     ytdlp = find_binary("yt-dlp")
@@ -2239,8 +2473,13 @@ class Handler(BaseHTTPRequestHandler):
             if is_youtube_url(url):
                 self._resolve_youtube(url)
                 return
-            if not ref and not qref:
-                self._json(400, {"error": "URL inválida (YouTube, Spotify ou Qobuz)"})
+            aref = amazon_ref(url)
+            if not ref and not qref and not aref:
+                self._json(400, {"error": "URL inválida (YouTube, Spotify, Qobuz ou Amazon Music)"})
+                return
+            if aref and not ref and not qref:
+                # Amazon Music: sem metadata via servidor, apenas informa que é suportado
+                self._json(200, {"kind": "track", "tracks": [], "name": "Amazon Music"})
                 return
             try:
                 if qref:
@@ -2535,8 +2774,32 @@ class Handler(BaseHTTPRequestHandler):
                                  "count": len(made), "skipped": skipped})
                 return
 
+            # Amazon Music → lucidadl (subprocess)
+            aref = amazon_ref(url)
+            if aref:
+                _cfg = load_config()
+                _grp = (body.get("group") or "") if _cfg.get("use_collection_folder", True) else ""
+                # dedup: verifica se já foi baixado (índice próprio do ytflac)
+                if not body.get("force", False):
+                    _done = amazon_index_read()
+                    _key = amazon_key(url)
+                    if _key and _key in _done:
+                        self._json(200, {"jobs": [], "kind": "amazon", "skipped": 1,
+                                        "message": "Já baixado anteriormente."})
+                        return
+                _title = (body.get("title") or "").strip() or "Amazon Music"
+                job = new_job(url, source="amazon", force=body.get("force", False), group=_grp,
+                              title=_title)
+                bid = batch_new(job["title"] or "Amazon Music", 1, [job["id"]], _grp)
+                with lock:
+                    jobs[job["id"]]["batch_id"] = bid
+                job["batch_id"] = bid
+                pool.submit(run_job, job["id"])
+                self._json(200, {"jobs": [job], "kind": "amazon"})
+                return
+
             if not is_youtube_url(url):
-                self._json(400, {"error": "URL inválida (YouTube ou Spotify)"})
+                self._json(400, {"error": "URL inválida (YouTube, Spotify, Qobuz ou Amazon Music)"})
                 return
             _cfg = load_config()
             _grp = (body.get("group") or "") if _cfg.get("use_collection_folder", True) else ""

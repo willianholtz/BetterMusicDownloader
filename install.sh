@@ -97,6 +97,29 @@ else
   ok "yt-dlp: $("$BIN_DIR/yt-dlp" --version 2>/dev/null || yt-dlp --version)"
 fi
 
+# ----------------------------------------------------------------------- lucidadl (Amazon Music -> FLAC)
+LUCIDA_VENV="$ROOT/server/venv"
+if [ ! -x "$LUCIDA_VENV/bin/lucidadl" ]; then
+  log "Criando a venv do lucidadl em $LUCIDA_VENV"
+  python3 -m venv "$LUCIDA_VENV" >/dev/null 2>&1 || true
+  if [ -x "$LUCIDA_VENV/bin/pip" ]; then
+    "$LUCIDA_VENV/bin/pip" install -q -U lucidadl || warn "pip do lucidadl falhou"
+  fi
+fi
+
+if [ -x "$LUCIDA_VENV/bin/lucidadl" ]; then
+  ok "lucidadl (venv): $("$LUCIDA_VENV/bin/lucidadl" --version)"
+  # Chromium do Playwright: necessário só quando o Cloudflare pede verificação
+  if ! find "$HOME/.cache/ms-playwright" -maxdepth 1 -type d -name 'chromium_headless_shell-*' 2>/dev/null | grep -q .; then
+    log "Instalando Chromium do Playwright (pode demorar alguns minutos)..."
+    "$LUCIDA_VENV/bin/playwright" install chromium >/dev/null 2>&1 \
+      && ok "Chromium do Playwright instalado" \
+      || warn "playwright install chromium falhou; instale manualmente: $LUCIDA_VENV/bin/playwright install chromium"
+  fi
+else
+  warn "lucidadl não instalado — downloads do Amazon Music não vão funcionar"
+fi
+
 mkdir -p "$OUTDIR"
 ok "pasta de destino: $OUTDIR"
 
@@ -163,6 +186,3 @@ if command -v vivaldi >/dev/null 2>&1; then
 elif command -v vivaldi-stable >/dev/null 2>&1; then
   vivaldi-stable "vivaldi://extensions" >/dev/null 2>&1 &
 fi
-EOF
-chmod +x install.sh
-echo "install.sh atualizado"

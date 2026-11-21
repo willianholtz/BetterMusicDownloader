@@ -9,13 +9,20 @@ const YT_MATCH = [
   "*://open.spotify.com/*",
   "*://*.qobuz.com/*",
   "*://play.qobuz.com/*",
+  "*://music.amazon.com/albums/*",
+  "*://music.amazon.com/tracks/*",
+  "*://music.amazon.com.br/albums/*",
+  "*://music.amazon.com.br/tracks/*",
+  "*://www.amazon.com/music/albums/*",
+  "*://www.amazon.com/music/tracks/*",
 ];
 
 /* Cria os jobs (um vídeo, ou várias faixas de um álbum/playlist) e acompanha
    todos em segundo plano. */
-async function startJobs(url, group) {
+async function startJobs(url, group, title) {
   const body = { url };
   if (group) body.group = group;
+  if (title) body.title = title;
   const data = await api("/api/jobs", {
     method: "POST",
     body: JSON.stringify(body),
@@ -96,6 +103,24 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
    popup fechado. */
 const tracking = new Set();
 const groupTrackers = new Map();
+
+// Polling em background para jobs do Amazon Music (lucidadl)
+setInterval(async () => {
+  try {
+    const res = await api("/api/jobs");
+    const jobs = (res && res.jobs) || [];
+    for (const job of jobs) {
+      if (job.source === "amazon" && (job.status === "done" || job.status === "error") && !tracking.has(job.id)) {
+        tracking.add(job.id);
+        if (job.status === "done") {
+          notify("Download completo", "Álbum do Amazon Music baixado em FLAC.");
+        } else if (job.status === "error") {
+          notify("Erro no download", job.error || "Falha ao baixar do Amazon Music.");
+        }
+      }
+    }
+  } catch (e) { /* servidor offline */ }
+}, 5000);
 
 function trackJob(id) {
   if (!id || tracking.has(id)) return;
@@ -183,7 +208,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           sendResponse({ ok: true, data: await api("/api/history/clear", { method: "POST" }) });
           break;
         case "download": {
-          const { created, data } = await startJobs(msg.url, msg.group);
+          const { created, data } = await startJobs(msg.url, msg.group, msg.title);
           sendResponse({ ok: true, data: { ...data, jobs: created } });
           break;
         }
