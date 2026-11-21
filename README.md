@@ -1,12 +1,15 @@
-# YouTube / Spotify / Qobuz → MP3 (Vivaldi extension)
+# YouTube / Spotify / Qobuz / Amazon Music → audio (Vivaldi extension)
 
-Click the extension icon on any YouTube (or YouTube Music) video — or on a
-Spotify/Qobuz track, album or playlist — and the audio is downloaded and
-converted to **MP3 (VBR ~245–285 kbps, lame -V0)** into your music folder, with
-metadata and cover art embedded.
+Click the extension icon on a YouTube (or YouTube Music) video, a Spotify/Qobuz
+track/album/playlist, or an **Amazon Music album/track** — and the audio is
+downloaded into your music folder with metadata and cover art embedded.
+
+- YouTube/Spotify/Qobuz → **MP3 (VBR ~245–285 kbps, lame -V0)** via yt-dlp + ffmpeg.
+- Amazon Music albums/tracks → **true FLAC** (original quality) via `lucidadl`.
 
 ```
-Vivaldi (extension)  --HTTP-->  local service 127.0.0.1:8765  -->  yt-dlp  -->  ffmpeg  -->  .mp3
+Vivaldi (extension) --HTTP--> local service 127.0.0.1:8765 --+--> yt-dlp --> ffmpeg --> .mp3
+                                                            +--> lucidadl (Amazon) --> .flac
 ```
 
 ## Why a local service is needed
@@ -14,11 +17,14 @@ Vivaldi (extension)  --HTTP-->  local service 127.0.0.1:8765  -->  yt-dlp  -->  
 A browser cannot download and convert YouTube audio on its own: the stream
 requires deciphering the player signature, and there is no ffmpeg access inside
 an extension. So the extension is just the UI; the heavy lifting is done by a
-local service (`server/ytflac_server.py`) running yt-dlp + ffmpeg.
+local service (`server/ytflac_server.py`) running yt-dlp + ffmpeg. For Amazon
+Music the service calls `lucidadl` (Playwright-based) in a subprocess, which
+pulls the original FLAC stream — no DRM cracking happens here.
 
 ## Features
 
 - **Multi-source metadata**: Spotify and Qobuz track/album/playlist links. Audio always comes from YouTube (matched by duration); tags come from the source.
+- **Amazon Music FLAC**: albums and tracks download as **true FLAC** (original quality) via `lucidadl`. Playlists are not supported by the resolver.
 - **Parallel downloads**: configurable 1–14 simultaneous downloads (default 14). Speeds up large albums/playlists.
 - **Progress tracking**: per-track progress bar that flows smoothly across all phases (search → download → convert → tag), plus an overall album/playlist progress card (e.g. "Human After All — 3/10 · 30%").
 - **Preview / "Buscar info"**: inspect metadata and track list (with "already downloaded" status) before downloading. Click a track to download just that one.
@@ -64,6 +70,26 @@ Playlists keep the "skip already downloaded" behaviour.
 The addon also handles Qobuz URLs where the last segment is a slug (not the
 album ID) by searching Qobuz automatically.
 
+## Amazon Music
+
+Album and track links (`https://music.amazon.com/albums/<id>`,
+`https://music.amazon.com/tracks/<id>`, and the `.com.br` variants) download as
+**true FLAC** — the original stream, not a re-encode. The local service runs
+`lucidadl album <url> -s amazon -F original` in a subprocess; its Playwright
+Chromium handles the Cloudflare check when one is required.
+
+- The button reads **"Baixar do Amazon Music (FLAC)"** and only appears on
+  `/albums/` and `/tracks/` URLs — **playlists are not supported** by the
+  resolver (`Amazon page has no available tracks with a token`).
+- Files land in `<destination>/<Artist> - <Album>/`. The download itself goes
+  to a staging folder in `.incoming/` first, so the destination is never
+  polluted with an `Artists/<Artist>/<Album>/` tree.
+- Deduplication uses `~/.config/ytflac/amazon_done.json` (keyed by the
+  album/track ID) — a second click on the same album reports "Já baixado
+  anteriormente." Use `{"force": true}` in the API to re-download.
+- The job title shows `Artist - Album` while downloading; cancel via the popup
+  stops the subprocess and clears staging.
+
 ## YouTube / YouTube Music
 
 Any YouTube (or YouTube Music) video or playlist link works exactly like the
@@ -100,9 +126,11 @@ The script:
 1. checks `python3` and `ffmpeg` (installs `ffmpeg` automatically if missing,
    detecting `pacman`/`apt`/`dnf`);
 2. creates the `yt-dlp` venv in `~/.local/share/ytflac/venv` (with `mutagen`);
-3. installs and enables the `ytflac.service` (systemd `--user`);
-4. creates `~/Música/YouTube FLAC`;
-5. opens Vivaldi on `vivaldi://extensions` automatically (if `vivaldi` is in PATH).
+3. creates `server/venv`, installs `lucidadl` and Playwright Chromium (for
+   Amazon Music FLAC);
+4. installs and enables the `ytflac.service` (systemd `--user`);
+5. creates `~/Música/YouTube FLAC`;
+6. opens Vivaldi on `vivaldi://extensions` automatically (if `vivaldi` is in PATH).
 
 ### Optional GUI tools
 
@@ -184,7 +212,11 @@ curl -X POST 127.0.0.1:8765/api/jobs -H 'Content-Type: application/json' \
      -d '{"url":"https://open.spotify.com/album/..."}'
 curl -X POST 127.0.0.1:8765/api/jobs -H 'Content-Type: application/json' \
      -d '{"url":"https://open.spotify.com/track/...","group":"My Folder"}'
+curl -X POST 127.0.0.1:8765/api/jobs -H 'Content-Type: application/json' \
+     -d '{"url":"https://music.amazon.com/albums/<id>","title":"Artist - Album"}'
 curl '127.0.0.1:8765/api/jobs?id=<id>'
+curl -X POST 127.0.0.1:8765/api/jobs/cancel -H 'Content-Type: application/json' \
+     -d '{"id":"<job id>"}'
 ```
 
 ## Maintenance
@@ -192,6 +224,9 @@ curl '127.0.0.1:8765/api/jobs?id=<id>'
 ```bash
 # update yt-dlp (YouTube changes frequently)
 ~/.local/share/ytflac/venv/bin/pip install -U "yt-dlp[default]"
+
+# update lucidadl (Amazon Music)
+cd ~/Documentos/GitHub/youtube-flac/server && venv/bin/pip install -U lucidadl
 
 # service logs
 journalctl --user -u ytflac -n 50 -f
@@ -212,9 +247,8 @@ available formats and a warning in the log.
 ## Security
 
 - The service listens **only** on `127.0.0.1` (not exposed on the network).
-- It only accepts URLs from YouTube domains.
-- It only serves `.mp3` (and legacy `.flac`) files inside the configured
-  destination folder.
+- It only accepts URLs from YouTube, Spotify, Qobuz and Amazon Music domains.
+- It only serves `.mp3` and `.flac` files inside the configured destination folder.
 
 ## Structure
 
@@ -223,7 +257,8 @@ youtube-flac/
 ├── install.sh
 ├── README.md
 ├── server/
-│   └── ytflac_server.py
+│   ├── ytflac_server.py
+│   └── venv/              # lucidadl + Playwright (Amazon Music FLAC)
 └── extension/
     ├── manifest.json
     ├── background.js
@@ -232,5 +267,4 @@ youtube-flac/
     ├── popup.css
     └── icons/
 ```
-EOF
-echo "written"
+
