@@ -186,9 +186,10 @@ itself when you want everything.
 | Destination folder | where the files are saved |
 | cookies.txt | optional, for videos requiring login (and Premium for 256 kbps) |
 | Output format | **MP3** (default), **M4A/AAC**, **Opus**, **OGG Vorbis**, **FLAC** (re-encoded, not true lossless), **ALAC**, **WAV**, **Original** (no conversion) |
-| Normalize volume | applies loudnorm (EBU R128) — avoids "quiet" tracks |
-| Normalization mode | Constant (linear, preserves dynamics), Dynaudnorm (smooth), Loudnorm (dynamic), Off |
-| Loudness target (LUFS) | -23 to -6 (default -8). Less negative = louder. |
+| Normalize volume | Levels tracks to the loudness target using **pure dB gain** — no compressor, no limiter, no dynamics change. Integrated loudness is measured, then `volume=(target - I) dB` is applied. |
+| Normalization mode | **dB gain (pure, default)**; legacy options: Constant (loudnorm 2-pass), Dynaudnorm (smooth), Loudnorm (dynamic), Off. The label in the UI used to say "loudnorm" — the actual behaviour has been pure dB gain since v1.4. |
+| Loudness target (LUFS) | -23 to -6 (default **-12**). Less negative = louder. |
+| Play sound when finished | Short synthesized chime when the last active download finishes successfully (default on, stored in `chrome.storage.local`). Cancellations/errors stay silent. |
 | Apply gain to the file (mp3gain) | bakes the level into the MP3, **without re-encoding**, so any player respects it. Needs `mp3gain` installed (AUR); option stays disabled otherwise. Works in 1.5 dB steps and saves undo data in the file. |
 | Minimum quality (kbps) | 0 = accept everything. YouTube free delivers at most ~160 kbps. |
 | Parallel downloads | 1–14 simultaneous (default 14). More = faster albums, more CPU/network. |
@@ -262,10 +263,31 @@ BetterMusicDownloader/
 │   └── venv/              # lucidadl + Playwright (Amazon Music FLAC)
 └── extension/
     ├── manifest.json
-    ├── background.js
+    ├── background.js       # job tracking + completion chime (offscreen)
     ├── popup.html
     ├── popup.js
     ├── popup.css
-    └── icons/
+    ├── offscreen.html      # audio host for the completion chime (MV3 has no DOM in the service worker)
+    ├── offscreen.js        # two-tone Web Audio "ding", synthesized (no audio asset)
+    ├── _locales/           # pt_BR / en / es UI strings
+    └── icons/              # 16 / 48 / 128 px extension icons
 ```
+
+### Completion chime details
+
+MV3 service workers have no DOM and cannot play audio, so the chime runs in an
+[offscreen document](https://developer.chrome.com/docs/extensions/reference/api/offscreen)
+created on demand (`AUDIO_PLAYBACK` reason). It synthesizes two short sine tones
+(880 Hz + 1318.5 Hz) with Web Audio — there is no sound file in the repo. When a
+job reaches a terminal state, `checkAllDone()` in `background.js` checks the job
+list: the chime fires **only once**, when there are no active jobs left and at
+least one finished with `done`. A 3 s timer catches the case where the service
+worker restarted mid-download. When the document already exists it receives a
+`play-done-sound` message; otherwise it is opened with `?play=1` so it plays on
+load, avoiding a message race.
+
+Toggle it in Settings → **"Tocar som quando terminar"** (default on). The
+preference lives in `chrome.storage.local`, so it does not depend on the local
+Python service. After changing UI labels, remember to update all three
+`_locales/*/messages.json` files — `data-i18n` overrides literal HTML text.
 
