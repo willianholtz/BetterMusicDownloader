@@ -578,12 +578,26 @@ async function saveSettings() {
   }
 }
 
+/* Preferencia do aviso sonoro fica no chrome.storage (nao depende do servidor). */
+async function loadSoundPref() {
+  const cb = $("doneSound");
+  if (!cb) return;
+  try {
+    const r = await new Promise((resolve) => chrome.storage.local.get({ doneSound: true }, resolve));
+    cb.checked = !r || r.doneSound !== false;
+  } catch (_) { cb.checked = true; }
+  cb.addEventListener("change", () => {
+    try { chrome.storage.local.set({ doneSound: cb.checked }); } catch (_) {}
+  });
+}
+
 /* ---------------------------------------------------------------- bootstrap */
 
 async function boot() {
   await loadCurrentTab();
   const online = await refreshHealth();
   applyI18n();
+  await loadSoundPref();
   if (online) {
     chrome.storage.local.get(["lastJobs"], (r) => {
       if (r && r.lastJobs && r.lastJobs.length) {

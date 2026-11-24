@@ -28,6 +28,7 @@ async function startJobs(url, group, title) {
     body: JSON.stringify(body),
   });
   const created = (data && data.jobs) || [];
+  if (created.length) hadActive = true;   // arma o aviso sonoro
   for (const job of created) trackJob(job.id);
   if (data && data.name && created.length > 1) {
     groupTrackers.set(data.name, { ids: created.map((j) => j.id), notified: false });
@@ -104,6 +105,71 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
 const tracking = new Set();
 const groupTrackers = new Map();
 
+/* Aviso sonoro quando o ULTIMO download ativo termina com sucesso (serve para
+   um download isolado ou para um lote/playlist inteiro). Service worker MV3 nao
+   tem DOM/audio: o ding toca num offscreen document. */
+const ACTIVE_STATES = ["downloading", "queued", "converting", "searching", "tagging"];
+let soundEnabled = true;
+let hadActive = false;
+let checkingDone = false;
+let soundBusy = false;
+
+chrome.storage.local.get({ doneSound: true }, (r) => {
+  soundEnabled = !r || r.doneSound !== false;
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.doneSound) soundEnabled = changes.doneSound.newValue !== false;
+});
+
+async function offscreenAberto() {
+  if (chrome.offscreen && typeof chrome.offscreen.hasDocument === "function") {
+    try { return await chrome.offscreen.hasDocument(); } catch (_) {}
+  }
+  return await new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: "ping-done-sound" }, () => resolve(!chrome.runtime.lastError));
+    } catch (_) { resolve(false); }
+  });
+}
+
+async function tocarSomConclusao() {
+  if (!soundEnabled || soundBusy || !chrome.offscreen) return;
+  soundBusy = true;
+  try {
+    if (!(await offscreenAberto())) {
+      // ?play=1 faz o documento tocar ao abrir, sem corrida de mensagem
+      await chrome.offscreen.createDocument({
+        url: "offscreen.html?play=1",
+        reasons: ["AUDIO_PLAYBACK"],
+        justification: "Aviso sonoro curto quando os downloads terminam.",
+      });
+    } else {
+      chrome.runtime.sendMessage({ type: "play-done-sound" }, () => void chrome.runtime.lastError);
+    }
+  } catch (_) {
+    /* navegador sem offscreen segue sem som, sem quebrar o download */
+  } finally {
+    setTimeout(() => { soundBusy = false; }, 1200);
+  }
+}
+
+async function checkAllDone() {
+  if (checkingDone) return;
+  checkingDone = true;
+  try {
+    const jobs = ((await api("/api/jobs")) || {}).jobs || [];
+    if (jobs.some((j) => ACTIVE_STATES.includes(j.status))) { hadActive = true; return; }
+    if (!hadActive) return;
+    hadActive = false;
+    // nao apita se tudo foi cancelado/erro: exige pelo menos um sucesso
+    if (jobs.some((j) => j.status === "done")) tocarSomConclusao();
+  } catch (_) { /* servidor offline */ }
+  finally { checkingDone = false; }
+}
+
+// rede de seguranca para o caso de o service worker ter reiniciado no meio
+setInterval(checkAllDone, 3000);
+
 // Polling em background para jobs do Amazon Music (lucidadl)
 setInterval(async () => {
   try {
@@ -131,6 +197,7 @@ function trackJob(id) {
       if (job.status === "done" || job.status === "error" || job.status === "cancelled") {
         clearInterval(timer);
         tracking.delete(id);
+        checkAllDone();   // ultimo ativo terminou? toca o aviso sonoro
         if (job.status === "done") notify(chrome.i18n.getMessage("notifyDone") || "MP3 ready", job.title || "Audio converted successfully.");
         else if (job.status === "error") notify(chrome.i18n.getMessage("notifyFail") || "Failed", job.error || "Download error.");
         if (job.group && groupTrackers.has(job.group)) {

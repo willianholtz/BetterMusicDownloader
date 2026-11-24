@@ -53,6 +53,12 @@
   "normalizeHint": {
     "message": "Evens out loudness with pure dB gain, without compressing the music."
   },
+  "labelDoneSound": {
+    "message": "Play sound when finished"
+  },
+  "doneSoundHint": {
+    "message": "Short chime when the last download finishes."
+  },
   "labelMp3gain": {
     "message": "Apply gain to the file (mp3gain)"
   },

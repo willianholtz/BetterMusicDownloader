@@ -35,6 +35,7 @@ pulls the original FLAC stream — no DRM cracking happens here.
 - **Custom file naming**: `{n} {title} {artist} {album}` placeholders for albums.
 - **Multi-language UI**: English, Spanish, Brazilian Portuguese (follows browser locale).
 - **Output formats**: MP3, M4A/AAC, Opus, OGG Vorbis, FLAC, ALAC, WAV, Original.
+- **Completion chime**: short synthesized "ding" (Web Audio, no audio file) when the last active download finishes successfully, even with the popup closed. Toggle in Settings → "Tocar som quando terminar" (default on, stored in `chrome.storage.local`). Cancellations/errors don't chime.
 
 ## Spotify
 

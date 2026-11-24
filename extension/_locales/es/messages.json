@@ -53,6 +53,12 @@
   "normalizeHint": {
     "message": "Iguala el volumen con ganancia pura en dB, sin comprimir la música."
   },
+  "labelDoneSound": {
+    "message": "Reproducir sonido al terminar"
+  },
+  "doneSoundHint": {
+    "message": "Aviso breve cuando termina la última descarga."
+  },
   "labelMp3gain": {
     "message": "Aplicar ganancia al archivo (mp3gain)"
   },
