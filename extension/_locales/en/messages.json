@@ -48,10 +48,10 @@
     "message": "Output format"
   },
   "labelNormalize": {
-    "message": "Normalize volume (loudnorm)"
+    "message": "Normalize volume (dB gain)"
   },
   "normalizeHint": {
-    "message": "Evens out the loudness between tracks (loudnorm, EBU R128)."
+    "message": "Evens out loudness with pure dB gain, without compressing the music."
   },
   "labelMp3gain": {
     "message": "Apply gain to the file (mp3gain)"
