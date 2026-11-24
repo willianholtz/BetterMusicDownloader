@@ -95,8 +95,8 @@
     <label class="opt">
       <input id="normalize" type="checkbox" />
       <span class="opt-text">
-        <span class="opt-label" data-i18n="labelNormalize">Normalizar volume (loudnorm)</span>
-        <span class="opt-hint" data-i18n="normalizeHint">Iguala o volume entre as faixas (loudnorm, EBU R128).</span>
+        <span class="opt-label" data-i18n="labelNormalize">Normalizar volume (ganho em dB)</span>
+        <span class="opt-hint" data-i18n="normalizeHint">Iguala o volume entre as faixas com ganho puro em dB, sem comprimir a música.</span>
       </span>
     </label>
     <label class="opt" id="mp3gainOpt">
@@ -128,9 +128,9 @@
         <select id="loudnessTarget">
           <option value="-23">-23 (bem baixo)</option>
           <option value="-18">-18 (baixo)</option>
-          <option value="-16">-16 (padrão)</option>
+          <option value="-16">-16 (baixo)</option>
           <option value="-14">-14 (alto)</option>
-          <option value="-12">-12 (mais alto)</option>
+          <option value="-12">-12 (padrão, mais alto)</option>
           <option value="-10">-10 (bem alto)</option>
           <option value="-9">-9 (mais alto)</option>
           <option value="-8">-8 (muito alto)</option>
@@ -143,12 +143,13 @@
       <span>Modo de normalização</span>
       <div class="field-row">
         <select id="normMode">
-          <option value="constant">Constante (mantém dinâmica, normaliza volume geral)</option>
+          <option value="db">Ganho em dB — puro, sem compressão (padrão)</option>
+          <option value="constant">Constante legado (loudnorm linear 2 passadas)</option>
           <option value="dynaudnorm">Suave (nivela volume ao longo da música)</option>
           <option value="loudnorm">Dinâmico (pode soar puxado)</option>
           <option value="off">Desligado</option>
         </select>
-        <span class="info" title="Constante = ganho único (recomendado). Suave = dynaudnorm.">ⓘ</span>
+        <span class="info" title="Ganho em dB = só volume, sem mexer na dinâmica. Pode clipar em faixas muito dinâmicas.">ⓘ</span>
       </div>
     </label>
     <label>

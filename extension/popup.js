@@ -526,9 +526,9 @@ async function loadSettings() {
       if (custom) custom.style.display = "none";
     }
     const lt = $("loudnessTarget");
-    if (lt) lt.value = String(res.data.loudness_target || -16);
+    if (lt) lt.value = String(res.data.loudness_target ?? -12);
     const nm = $("normMode");
-    if (nm) nm.value = res.data.norm_mode || "constant";
+    if (nm) nm.value = res.data.norm_mode || "db";
     const normCb = $("normalize");
     const syncNormUi = () => {
       const on = !!(normCb && normCb.checked);
@@ -565,8 +565,8 @@ async function saveSettings() {
       if (sel.value === "custom") return ($("nameFormatCustom").value || "").trim();
       return sel.value;
     })(),
-    loudness_target: parseInt($("loudnessTarget").value || "-16", 10) || -16,
-    norm_mode: $("normMode") ? $("normMode").value : "constant",
+    loudness_target: parseInt($("loudnessTarget").value ?? "-12", 10) || -12,
+    norm_mode: $("normMode") ? $("normMode").value : "db",
   };
   const res = await send({ type: "save-settings", payload });
   const msg = $("saveMsg");

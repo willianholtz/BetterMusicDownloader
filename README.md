@@ -31,7 +31,7 @@ pulls the original FLAC stream — no DRM cracking happens here.
 - **Smart folders**: albums/playlists download into a subfolder named after the collection. Single tracks downloaded from a collection can optionally go into the same folder (configurable, default on).
 - **Skip existing**: already-downloaded tracks are detected (by filename + ISRC index) and skipped automatically. Force re-download available.
 - **Retry with backoff**: 403 errors retry with exponential backoff (1s, 4s, 9s) across up to 3 candidates.
-- **Normalization**: configurable loudness target (-23 to -6 LUFS) in constant/dynaudnorm/loudnorm/off modes.
+- **Normalization**: pure dB gain to a configurable loudness target (-23 to -6 LUFS, default **-12**). Measures integrated loudness and applies only `volume=(target - I) dB` — no compressor, no limiter, no dynamics change. Legacy modes (constant loudnorm / dynaudnorm / loudnorm / off) remain available.
 - **Custom file naming**: `{n} {title} {artist} {album}` placeholders for albums.
 - **Multi-language UI**: English, Spanish, Brazilian Portuguese (follows browser locale).
 - **Output formats**: MP3, M4A/AAC, Opus, OGG Vorbis, FLAC, ALAC, WAV, Original.
@@ -117,7 +117,7 @@ YouTube delivers at most **Opus ~160 kbps** (free) or **~256 kbps** (Premium, wi
 ## Installation
 
 ```bash
-cd ~/Documentos/GitHub/youtube-flac
+cd ~/Documentos/GitHub/BetterMusicDownloader
 bash install.sh          # terminal mode (default)
 bash install.sh --gui    # try zenity/kdialog/dialog if available
 ```
@@ -149,7 +149,7 @@ sudo apt install zenity
 
 1. `vivaldi://extensions`
 2. enable **Developer mode**
-3. **Load unpacked** → pick `~/Documentos/GitHub/youtube-flac/extension`
+3. **Load unpacked** → pick `~/Documentos/GitHub/BetterMusicDownloader/extension`
 
 ## Usage
 
@@ -226,7 +226,7 @@ curl -X POST 127.0.0.1:8765/api/jobs/cancel -H 'Content-Type: application/json' 
 ~/.local/share/ytflac/venv/bin/pip install -U "yt-dlp[default]"
 
 # update lucidadl (Amazon Music)
-cd ~/Documentos/GitHub/youtube-flac/server && venv/bin/pip install -U lucidadl
+cd ~/Documentos/GitHub/BetterMusicDownloader/server && venv/bin/pip install -U lucidadl
 
 # service logs
 journalctl --user -u ytflac -n 50 -f
@@ -253,7 +253,7 @@ available formats and a warning in the log.
 ## Structure
 
 ```
-youtube-flac/
+BetterMusicDownloader/
 ├── install.sh
 ├── README.md
 ├── server/

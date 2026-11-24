@@ -182,7 +182,7 @@ def load_config() -> dict:
     cfg = {"outdir": str(DEFAULT_OUTDIR), "cookies": "",
             "format": "mp3", "normalize": True, "min_bitrate": 0,
             "mp3gain": False, "name_format": "",
-            "loudness_target": -16, "norm_mode": "constant",
+            "loudness_target": -12, "norm_mode": "db",
             "parallel": 14, "use_collection_folder": True,
             "deezer_arl": "", "tidal_cookies": ""}
     try:
@@ -1521,31 +1521,56 @@ def _clean_final_name(path: str) -> str:
 
 def normalize_file(path: str) -> str:
     """Normaliza o volume conforme `norm_mode` no config:
-      - "constant": ganho constante (linear loudnorm, 2 passadas) — preserva
-        dinamica, normaliza volume geral. (padrao)
+      - "db": ganho linear PURO em dB — mede o LUFS e aplica somente
+        volume=(alvo - I) dB. Nao comprime, nao limita, nao mexe na dinamica
+        interna da musica. (padrao; alvo -12 LUFS)
+      - "constant": loudnorm linear em 2 passadas (pode recorrer a dinamica
+        quando o pico nao deixa — mantido por compatibilidade).
       - "dynaudnorm": normalizacao dinamica suave (dynaudnorm), nivela volume
         ao longo da faixa sem pumping.
       - "loudnorm": loudnorm dinamico (uma passada), pode soar 'puxado'.
       - "off": nao normaliza.
 
-    Alvo de loudness (I) vem de `loudness_target` (padrao -16), usado nos
-    modos loudnorm. Devolve o path.
+    Alvo de loudness (I) vem de `loudness_target` (padrao -12). Devolve o path.
     """
     p = Path(path)
     if not p.is_file():
         return path
     cfg = load_config()
-    mode = (cfg.get("norm_mode") or "constant").lower()
+    mode = (cfg.get("norm_mode") or "db").lower()
     if mode == "off":
         return path
     try:
-        target_i = int(cfg.get("loudness_target", -16))
+        target_i = int(cfg.get("loudness_target", -12))
     except (TypeError, ValueError):
-        target_i = -16
+        target_i = -12
     ffmpeg = find_binary("ffmpeg") or "ffmpeg"
     tmp = p.with_name(p.stem + ".norm" + p.suffix)
 
-    if mode == "constant":
+    if mode == "db":
+        # Ganho puro: o loudnorm abaixo serve APENAS para medir o input_i
+        # (print_format=json); ele nao e aplicado ao audio.
+        try:
+            out = subprocess.run(
+                [ffmpeg, "-y", "-hide_banner", "-loglevel", "info",
+                 "-i", str(p),
+                 "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+                 "-f", "null", "-"],
+                capture_output=True, text=True, timeout=300,
+                encoding="utf-8", errors="replace")
+            txt = (out.stderr or "") + (out.stdout or "")
+            k, j = txt.rfind("{"), txt.rfind("}")
+            data = json.loads(txt[k:j + 1])
+            input_i = float(data["input_i"])
+            ganho = target_i - input_i
+            af = f"volume={ganho:.2f}dB"
+            if abs(ganho) < 0.005:
+                return str(p)
+        except (OSError, subprocess.SubprocessError, ValueError,
+                KeyError, json.JSONDecodeError):
+            # Sem medicao confiavel, nao altera o arquivo.
+            return path
+    elif mode == "constant":
         # duas passadas: mede e aplica ganho constante (linear=true)
         measured = {}
         try:
